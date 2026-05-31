@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "学习通题目导出助手",
+  "version": "1.0.0",
+  "description": "从学习通考试/作业页面抓取题目并导出为Word文档",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.chaoxing.com/*",
+    "https://*.edu.cn/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.chaoxing.com/*",
+        "https://*.edu.cn/*"
+      ],
+      "js": [
+        "lib/typr.js",
+        "lib/font-decrypt.js",
+        "content/parser.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

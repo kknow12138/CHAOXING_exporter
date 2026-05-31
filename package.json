@@ -1,0 +1,17 @@
+{
+  "name": "chaoxing-question-exporter",
+  "version": "1.0.0",
+  "description": "学习通题目导出助手 - 浏览器扩展",
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack --mode development --watch"
+  },
+  "dependencies": {
+    "docx": "^8.5.0",
+    "file-saver": "^2.0.5"
+  },
+  "devDependencies": {
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
