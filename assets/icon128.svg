@@ -1,17 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
-  <rect width="128" height="128" fill="rgb(25,118,210)"/>
-  <rect x="16" y="16" 
-        width="96" height="96" 
-        fill="none" stroke="white" stroke-width="4"/>
-  
-  <line x1="32" y1="42" 
-        x2="96" y2="42" 
-        stroke="white" stroke-width="2"/>
-  <line x1="32" y1="64" 
-        x2="96" y2="64" 
-        stroke="white" stroke-width="2"/>
-  <line x1="32" y1="85" 
-        x2="86" y2="85" 
-        stroke="white" stroke-width="2"/>
-  
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="题目导出助手">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="14" x2="110" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#21D4C5"/>
+      <stop offset="1" stop-color="#1976D2"/>
+    </linearGradient>
+    <filter id="shadow" x="18" y="14" width="92" height="104" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#0F3F73" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+  <path d="M44 26h30l24 24v52H44V26z" fill="#FFFFFF" filter="url(#shadow)"/>
+  <path d="M74 26v24h24" fill="#DDEEFF"/>
+  <path d="M55 64h32M55 77h24" stroke="#1976D2" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="43" cy="89" r="18" fill="#19C7A2"/>
+  <path d="M34 89l7 7 13-16" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M81 86h24M96 77l9 9-9 9" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

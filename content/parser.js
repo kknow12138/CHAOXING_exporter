@@ -286,6 +286,10 @@ class QuestionExportParser {
       zhihuishu: {
         questionContainer: [
           '.questionType',
+          '.question-type',
+          '.question-item',
+          '.question-item-wrap',
+          '.paper-subject',
           '[data-questionid]',
           '.examPaper_subject',
           '.subject',
@@ -305,6 +309,9 @@ class QuestionExportParser {
           '[class*="question"]'
         ],
         questionTitle: [
+          '.question-title',
+          '.question-content',
+          '.question-stem',
           '.subject_describe p',
           '.subject_describe',
           '.subject_stem',
@@ -325,6 +332,14 @@ class QuestionExportParser {
           'h3'
         ],
         options: [
+          '.option-item',
+          '.option',
+          '.answer-option',
+          '.question-option',
+          '.choice-item',
+          '.choice',
+          '[class*="option"]',
+          '[class*="choice"]',
           '.subject_node .nodeLab',
           '.subject_node',
           '.examPaper_optionList li',
@@ -368,11 +383,17 @@ class QuestionExportParser {
           '.examquestions-answer',
           '[class*="examquestions-answer"]',
           'input:checked',
+          '.is-checked',
           '.checked',
+          '[class*="checked"]',
           '.selected',
+          '[class*="selected"]',
           '.active',
+          '[class*="active"]',
           '.right',
+          '[class*="right"]',
           '.correct',
+          '[class*="correct"]',
           '.cur',
           '.on',
           '[aria-checked="true"]'
@@ -532,6 +553,10 @@ class QuestionExportParser {
       score += 5;
     }
 
+    if (this.platform === 'zhihuishu' && this.isZhihuishuQuestionElement(element, plainText)) {
+      score += 5;
+    }
+
     if (this.hasQuestionTypeKeyword(plainText)) {
       score += 2;
     }
@@ -643,16 +668,17 @@ class QuestionExportParser {
 
   parseZhihuishuQuestion(questionElement, index) {
     const title = this.extractZhihuishuTitle(questionElement);
-    const options = this.extractOptions(questionElement);
     const type = this.extractZhihuishuType(questionElement);
+    const options = type === '判断题'
+      ? this.extractZhihuishuJudgeOptions(questionElement)
+      : this.extractZhihuishuOptions(questionElement);
 
-    // 答案：优先从勾选选项推导，其次找答案区
     const checkedOptions = options.filter((o) => o.isChecked);
     let answer = null;
     if (checkedOptions.length > 0) {
-      answer = checkedOptions.map((o) => o.label).join('、');
+      answer = this.formatZhihuishuCheckedAnswer(type, checkedOptions);
     } else {
-      answer = this.extractAnswer(questionElement);
+      answer = this.normalizeZhihuishuFallbackAnswer(type, this.extractAnswer(questionElement), options);
     }
 
     return {
@@ -664,24 +690,317 @@ class QuestionExportParser {
     };
   }
 
+  isZhihuishuQuestionElement(element, text = null) {
+    if (!element) {
+      return false;
+    }
+
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+    return /【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】/.test(plainText) ||
+      /^\d+\s*【/.test(plainText) ||
+      Boolean(element.querySelector('.subject_describe, .subject_node, .examPaper_optionList, [class*="option"]'));
+  }
+
   extractZhihuishuTitle(element) {
     const descEl = element.querySelector('.subject_describe p') ||
-                   element.querySelector('.subject_describe');
+                   element.querySelector('.subject_describe') ||
+                   element.querySelector('.question-title') ||
+                   element.querySelector('.question-content') ||
+                   element.querySelector('.question-stem');
     if (descEl) {
-      return this.cleanTitleText(descEl.innerText || descEl.textContent || '');
+      return this.cleanZhihuishuTitleText(descEl.innerText || descEl.textContent || '');
     }
-    return this.extractTitle(element);
+
+    const clone = element.cloneNode(true);
+    [
+      ...this.selectors.options,
+      ...this.selectors.answerBox,
+      '.AI',
+      '[class*="ai"]',
+      '[class*="answer"]',
+      '[class*="analysis"]',
+      '[class*="score"]'
+    ].forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((node) => node.remove());
+    });
+
+    const text = this.cleanZhihuishuTitleText(clone.innerText || clone.textContent || '');
+    return text || this.extractTitle(element);
   }
 
   extractZhihuishuType(element) {
-    // 智慧树用 【多选题】【单选题】【判断题】等标注题型
-    const allSpans = Array.from(element.querySelectorAll('span'));
-    for (const span of allSpans) {
-      const text = span.innerText || span.textContent || '';
-      const match = text.match(/【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】/);
-      if (match) return match[1];
-    }
+    const text = this.cleanText(element.innerText || element.textContent || '');
+    const match = text.match(/【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】/);
+    if (match) return match[1];
     return null;
+  }
+
+  extractZhihuishuOptions(element) {
+    const selector = [
+      '.subject_node',
+      '.examPaper_optionList li',
+      '.optionList li',
+      '.option_node',
+      '.option-item',
+      '.answer-option',
+      '.question-option',
+      '.choice-item',
+      '[class*="option"]',
+      '[class*="choice"]',
+      'label',
+      'li'
+    ].join(', ');
+
+    const optionElements = Array.from(element.querySelectorAll(selector))
+      .filter((node) => this.isZhihuishuOptionNode(node));
+
+    if (optionElements.length >= 2) {
+      return this.buildZhihuishuOptions(optionElements);
+    }
+
+    return this.findOptionsByText(element);
+  }
+
+  extractZhihuishuJudgeOptions(element) {
+    const optionElements = Array.from(element.querySelectorAll('label, li, .subject_node, .option-item, .answer-option, .question-option, .choice-item, [class*="option"], [class*="choice"], div'))
+      .filter((node) => {
+        const text = this.cleanText(this.decryptText(node.innerText || node.textContent || ''));
+        if (!/^([AB])[\.\s、:：\)]\s*(对|错)$/i.test(text)) {
+          return false;
+        }
+
+        return !Array.from(node.children || []).some((child) => {
+          const childText = this.cleanText(this.decryptText(child.innerText || child.textContent || ''));
+          return /^([AB])[\.\s、:：\)]\s*(对|错)$/i.test(childText);
+        });
+      });
+
+    const deduped = this.dedupeZhihuishuOptionElements(optionElements);
+    if (deduped.length >= 2) {
+      return this.buildZhihuishuOptions(deduped);
+    }
+
+    const textOptions = this.findOptionsByText(element)
+      .filter((option) => /^[AB]$/.test(option.label) && /^(对|错)$/.test(option.text));
+
+    return textOptions.map((option) => ({
+      ...option,
+      isChecked: this.isZhihuishuJudgeOptionCheckedByText(element, option)
+    }));
+  }
+
+  dedupeZhihuishuOptionElements(optionElements) {
+    const bestByText = new Map();
+
+    optionElements.forEach((element) => {
+      const text = this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+      const current = bestByText.get(text);
+      if (!current || element.querySelector('input, [aria-checked], i, svg, span') || text.length < this.cleanText(current.innerText || current.textContent || '').length) {
+        bestByText.set(text, element);
+      }
+    });
+
+    return Array.from(bestByText.values());
+  }
+
+  isZhihuishuJudgeOptionCheckedByText(element, option) {
+    const optionTextPattern = new RegExp(`^${option.label}[\\.\\s、:：\\)]\\s*${option.text}$`, 'i');
+    const textNode = Array.from(element.querySelectorAll('*')).find((node) => {
+      const text = this.cleanText(this.decryptText(node.innerText || node.textContent || ''));
+      return optionTextPattern.test(text);
+    });
+
+    if (!textNode) {
+      return false;
+    }
+
+    const candidates = [
+      textNode,
+      textNode.parentElement,
+      textNode.parentElement && textNode.parentElement.parentElement
+    ].filter(Boolean);
+
+    return candidates.some((candidate) => this.isZhihuishuOptionChecked(candidate));
+  }
+
+  isZhihuishuOptionNode(node) {
+    const text = this.cleanText(this.decryptText(node.innerText || node.textContent || ''));
+    if (!this.isOptionLikeText(text) || text.length > 220) {
+      return false;
+    }
+
+    if (/\s+[A-H][\.\s、:：\)]\s*\S+/.test(text)) {
+      return false;
+    }
+
+    const childOptionCount = Array.from(node.children || [])
+      .filter((child) => this.isOptionLikeText(this.cleanText(child.innerText || child.textContent || '')))
+      .length;
+
+    return childOptionCount <= 1;
+  }
+
+  buildZhihuishuOptions(optionElements) {
+    const seen = new Set();
+    const options = [];
+
+    optionElements.forEach((optionElement, index) => {
+      const rawText = this.cleanText(this.decryptText(optionElement.innerText || optionElement.textContent || ''));
+      const parsed = this.parseOptionText(rawText);
+      const label = parsed.label || String.fromCharCode(65 + index);
+      const dedupeKey = `${label}-${parsed.text}`;
+
+      if (!parsed.text || seen.has(dedupeKey)) {
+        return;
+      }
+
+      seen.add(dedupeKey);
+      options.push({
+        label,
+        text: parsed.text,
+        isChecked: this.isZhihuishuOptionChecked(optionElement)
+      });
+    });
+
+    return options;
+  }
+
+  isZhihuishuOptionChecked(optionElement) {
+    if (optionElement.querySelector('input:checked, [aria-checked="true"]')) {
+      return true;
+    }
+
+    const optionScope = optionElement.closest('li, label, .subject_node, [class*="option"], [class*="choice"]') || optionElement;
+    const classText = this.collectClassText(optionScope).toLowerCase();
+
+    if (/(^|[-_ ])(checked|selected|active|current|cur|on|right|correct|success|blue)([-_ ]|$)/i.test(classText)) {
+      return true;
+    }
+
+    const marker = optionScope.querySelector([
+      '.examquestions-answer',
+      '.is-checked',
+      '.checked',
+      '.selected',
+      '.active',
+      '.cur',
+      '.on',
+      '.right',
+      '.correct',
+      '.success',
+      '.blue',
+      '[class*="checked"]',
+      '[class*="selected"]',
+      '[class*="active"]',
+      '[class*="right"]',
+      '[class*="correct"]',
+      '[class*="success"]',
+      '[class*="blue"]'
+    ].join(', '));
+
+    if (marker) {
+      return true;
+    }
+
+    return this.hasZhihuishuSelectedStyle(optionScope);
+  }
+
+  hasZhihuishuSelectedStyle(element) {
+    const candidates = [element, ...Array.from(element.querySelectorAll('*'))];
+
+    return candidates.some((node) => {
+      const style = window.getComputedStyle ? window.getComputedStyle(node) : null;
+      if (!style) {
+        return false;
+      }
+
+      return this.isZhihuishuSelectedColor(style.color) ||
+        this.isZhihuishuSelectedColor(style.backgroundColor) ||
+        this.isZhihuishuSelectedColor(style.borderColor);
+    });
+  }
+
+  isZhihuishuSelectedColor(color) {
+    const match = String(color || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (!match) {
+      return false;
+    }
+
+    const red = Number(match[1]);
+    const green = Number(match[2]);
+    const blue = Number(match[3]);
+
+    return blue >= 180 && red <= 120 && green >= 80;
+  }
+
+  collectClassText(element) {
+    const classes = [];
+    const collect = (node) => {
+      if (!node || !node.classList) {
+        return;
+      }
+
+      classes.push(...Array.from(node.classList));
+      Array.from(node.children || []).forEach(collect);
+    };
+
+    collect(element);
+    return classes.join(' ');
+  }
+
+  formatZhihuishuCheckedAnswer(type, checkedOptions) {
+    if (type === '多选题') {
+      return checkedOptions.map((option) => option.label).join('');
+    }
+
+    if (type === '判断题') {
+      const option = checkedOptions[0];
+      return option ? `${option.label}. ${option.text}` : null;
+    }
+
+    return checkedOptions
+      .map((option) => `${option.label}. ${option.text}`)
+      .join('、');
+  }
+
+  normalizeZhihuishuFallbackAnswer(type, answer, options) {
+    const text = this.cleanAnswerText(answer || '')
+      .replace(/^(答案|正确答案|参考答案)[:：]?\s*/i, '')
+      .trim();
+
+    if (!text) {
+      return null;
+    }
+
+    if (type === '判断题') {
+      if (/^(正确|错误)$/.test(text)) {
+        return null;
+      }
+
+      const labelMatch = text.match(/^([AB])$/i);
+      if (labelMatch) {
+        const option = options.find((item) => item.label === labelMatch[1].toUpperCase());
+        return option ? `${option.label}. ${option.text}` : labelMatch[1].toUpperCase();
+      }
+
+      const textMatch = text.match(/^(对|错)$/);
+      if (textMatch) {
+        const option = options.find((item) => item.text === textMatch[1]);
+        return option ? `${option.label}. ${option.text}` : textMatch[1];
+      }
+    }
+
+    return text;
+  }
+
+  cleanZhihuishuTitleText(text) {
+    return this.cleanText(this.decryptText(text))
+      .replace(/^\d+[\.\s、:：)]*\s*/, '')
+      .replace(/^【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】\s*/, '')
+      .replace(/^（?[\d.]+分）?\s*/, '')
+      .replace(/^AI解析\s*/, '')
+      .replace(/\s*(正确|错误|本题的得分|我的答案|参考答案|答案解析|解析).*$/i, '')
+      .trim();
   }
 
   isKetangpaiQuestionElement(element) {
@@ -816,6 +1135,7 @@ class QuestionExportParser {
       title
         .replace(/[-_|\s]*(学习通|超星|长江雨课堂|雨课堂).*$/i, '')
         .replace(/[-_|\s]*(课堂派|ketangpai).*$/i, '')
+        .replace(/[-_|\s]*(智慧树|知到|zhihuishu).*$/i, '')
         .replace(/\s*多次答题取\s*最高成绩\s*$/i, '')
         .replace(/\s*用时[:：].*$/i, '')
     ) || '题目导出';
@@ -1126,6 +1446,6 @@ class QuestionExportParser {
       return '当前是长江雨课堂的考试总览页，不是试卷详情页。请先点击“查看试卷”进入题目页，再使用扩展导出。';
     }
 
-    return '未找到题目，请确认当前页面是学习通、长江雨课堂或课堂派的答题/作业/试卷页面。请打开浏览器控制台（F12）查看详细信息。';
+    return '未找到题目，请确认当前页面是学习通、长江雨课堂、课堂派或智慧树的答题/作业/试卷页面。请打开浏览器控制台（F12）查看详细信息。';
   }
 }
