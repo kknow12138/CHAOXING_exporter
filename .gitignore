@@ -2,11 +2,9 @@
 node_modules/
 package-lock.json
 
-# Build outputs
-background/service-worker.js
-background/service-worker.js.LICENSE.txt
-lib/docx-generator.js
-lib/docx-generator.js.LICENSE.txt
+# Build outputs（保留编译产物供直接使用）
+# lib/docx-generator.js
+# lib/docx-generator.js.LICENSE.txt
 
 # IDE
 .vscode/
