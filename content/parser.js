@@ -285,6 +285,8 @@ class QuestionExportParser {
       },
       zhihuishu: {
         questionContainer: [
+          '.questionType',
+          '[data-questionid]',
           '.examPaper_subject',
           '.subject',
           '.subjectItem',
@@ -303,6 +305,7 @@ class QuestionExportParser {
           '[class*="question"]'
         ],
         questionTitle: [
+          '.subject_describe p',
           '.subject_describe',
           '.subject_stem',
           '.subjectDescribe',
@@ -322,6 +325,7 @@ class QuestionExportParser {
           'h3'
         ],
         options: [
+          '.subject_node .nodeLab',
           '.subject_node',
           '.examPaper_optionList li',
           '.optionList li',
@@ -361,6 +365,8 @@ class QuestionExportParser {
           '[class*="解析"]'
         ],
         checkedMarker: [
+          '.examquestions-answer',
+          '[class*="examquestions-answer"]',
           'input:checked',
           '.checked',
           '.selected',
@@ -606,6 +612,10 @@ class QuestionExportParser {
       return this.parseKetangpaiQuestion(questionElement, index);
     }
 
+    if (this.platform === 'zhihuishu') {
+      return this.parseZhihuishuQuestion(questionElement, index);
+    }
+
     const question = {
       number: index + 1,
       title: this.extractTitle(questionElement),
@@ -629,6 +639,49 @@ class QuestionExportParser {
 
     question.type = this.inferKetangpaiQuestionType(questionElement, question);
     return question;
+  }
+
+  parseZhihuishuQuestion(questionElement, index) {
+    const title = this.extractZhihuishuTitle(questionElement);
+    const options = this.extractOptions(questionElement);
+    const type = this.extractZhihuishuType(questionElement);
+
+    // 答案：优先从勾选选项推导，其次找答案区
+    const checkedOptions = options.filter((o) => o.isChecked);
+    let answer = null;
+    if (checkedOptions.length > 0) {
+      answer = checkedOptions.map((o) => o.label).join('、');
+    } else {
+      answer = this.extractAnswer(questionElement);
+    }
+
+    return {
+      number: index + 1,
+      title,
+      options,
+      answer,
+      type: type || this.inferQuestionType({ title, options, answer }, questionElement)
+    };
+  }
+
+  extractZhihuishuTitle(element) {
+    const descEl = element.querySelector('.subject_describe p') ||
+                   element.querySelector('.subject_describe');
+    if (descEl) {
+      return this.cleanTitleText(descEl.innerText || descEl.textContent || '');
+    }
+    return this.extractTitle(element);
+  }
+
+  extractZhihuishuType(element) {
+    // 智慧树用 【多选题】【单选题】【判断题】等标注题型
+    const allSpans = Array.from(element.querySelectorAll('span'));
+    for (const span of allSpans) {
+      const text = span.innerText || span.textContent || '';
+      const match = text.match(/【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】/);
+      if (match) return match[1];
+    }
+    return null;
   }
 
   isKetangpaiQuestionElement(element) {
