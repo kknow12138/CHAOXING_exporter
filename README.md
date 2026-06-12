@@ -41,7 +41,7 @@
 3. 放到 `assets/` 文件夹
 
 或者用在线工具生成：https://www.favicon-generator.org/
-（此步可省略）
+（此步可省略，图标已添加）
 
 ### 加载扩展
 
