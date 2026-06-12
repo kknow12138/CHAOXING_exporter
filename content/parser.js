@@ -7,6 +7,7 @@ class QuestionExportParser {
       ...this.platformConfigs.chaoxing.questionContainer,
       ...this.platformConfigs.yuketang.questionContainer,
       ...this.platformConfigs.ketangpai.questionContainer,
+      ...this.platformConfigs.zhihuishu.questionContainer,
       ...this.platformConfigs.generic.questionContainer
     ])];
     this.mergedOptionSelectors = [
@@ -282,6 +283,109 @@ class QuestionExportParser {
           'h2'
         ]
       },
+      zhihuishu: {
+        questionContainer: [
+          '.examPaper_subject',
+          '.subject',
+          '.subjectItem',
+          '.questionList li',
+          '.exap-paper-item',
+          '.nodeContent',
+          '.topic-item',
+          '[class*="examPaper_subject"]',
+          '[class*="subjectItem"]',
+          '[class*="subject-item"]',
+          '[class*="question-item"]',
+          '[class*="questionItem"]',
+          '[data-question-id]',
+          '[data-problem-id]',
+          '[class*="subject"]',
+          '[class*="question"]'
+        ],
+        questionTitle: [
+          '.subject_describe',
+          '.subject_stem',
+          '.subjectDescribe',
+          '.nodeLab',
+          '.exap-title',
+          '.topic-title',
+          '.stem',
+          '[class*="subject_describe"]',
+          '[class*="subjectDescribe"]',
+          '[class*="describe"]',
+          '[class*="stem"]',
+          '[class*="题干"]',
+          '[class*="title"]',
+          '[class*="content"]',
+          'h1',
+          'h2',
+          'h3'
+        ],
+        options: [
+          '.subject_node',
+          '.examPaper_optionList li',
+          '.optionList li',
+          '.option_node',
+          '.nodeLab',
+          '.option-item',
+          '.answer-item',
+          '[class*="subject_node"]',
+          '[class*="optionList"] li',
+          '[class*="option-item"]',
+          '[class*="optionItem"]',
+          '[class*="answer-item"]',
+          '[class*="option"]',
+          '[role="radio"]',
+          '[role="checkbox"]',
+          'label',
+          'li'
+        ],
+        answerBox: [
+          '.examPaper_answer',
+          '.subject_answer',
+          '.rightAnswer',
+          '.right-answer',
+          '.correctAnswer',
+          '.answer',
+          '.answer-content',
+          '.analysis',
+          '.subject_analysis',
+          '[class*="examPaper_answer"]',
+          '[class*="subject_answer"]',
+          '[class*="rightAnswer"]',
+          '[class*="right-answer"]',
+          '[class*="correctAnswer"]',
+          '[class*="answer-content"]',
+          '[class*="answer"]',
+          '[class*="analysis"]',
+          '[class*="解析"]'
+        ],
+        checkedMarker: [
+          'input:checked',
+          '.checked',
+          '.selected',
+          '.active',
+          '.right',
+          '.correct',
+          '.cur',
+          '.on',
+          '[aria-checked="true"]'
+        ],
+        pageTitle: [
+          '.examPaper_title',
+          '.paperName',
+          '.exam-title',
+          '.paper-title',
+          '.exap-name',
+          '[class*="examPaper_title"]',
+          '[class*="paperName"]',
+          '[class*="paper-title"]',
+          '[class*="exam-title"]',
+          '[class*="title"]',
+          'h1',
+          'h2'
+        ]
+      },
       generic: {
         questionContainer: [
           '[data-question-id]',
@@ -350,6 +454,10 @@ class QuestionExportParser {
 
     if (host.includes('ketangpai.com')) {
       return 'ketangpai';
+    }
+
+    if (host.includes('zhihuishu.com')) {
+      return 'zhihuishu';
     }
 
     return 'generic';

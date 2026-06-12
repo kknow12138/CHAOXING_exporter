@@ -13,6 +13,11 @@ const platformConfigs = {
     name: '课堂派',
     hosts: ['ketangpai.com'],
     pageHint: '请在课堂派的测试或作业详情页面使用此按钮'
+  },
+  zhihuishu: {
+    name: '智慧树',
+    hosts: ['zhihuishu.com'],
+    pageHint: '请在智慧树的考试、作业或试卷页面使用此按钮'
   }
 };
 

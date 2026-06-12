@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "题目导出助手",
   "version": "1.0.0",
-  "description": "从学习通、长江雨课堂和课堂派页面抓取题目并导出为 Word 文档",
+  "description": "从学习通、长江雨课堂、课堂派和智慧树页面抓取题目并导出为 Word 文档",
   "permissions": [
     "activeTab",
     "scripting",
@@ -15,6 +15,7 @@
     "https://*.ketangpai.com/*",
     "http://ketangpai.com/*",
     "http://*.ketangpai.com/*",
+    "https://*.zhihuishu.com/*",
     "https://*.edu.cn/*"
   ],
   "action": {
@@ -37,6 +38,7 @@
         "https://*.ketangpai.com/*",
         "http://ketangpai.com/*",
         "http://*.ketangpai.com/*",
+        "https://*.zhihuishu.com/*",
         "https://*.edu.cn/*"
       ],
       "js": [
