@@ -1,7 +1,7 @@
-// 学习通页面结构调试工具
+// 学习通 / 长江雨课堂 / 课堂派页面结构调试工具
 // 在浏览器控制台运行此脚本，查看页面的题目容器结构
 
-console.log('=== 学习通页面结构分析 ===');
+console.log('=== 题目页面结构分析 ===');
 console.log('页面 URL:', window.location.href);
 console.log('页面标题:', document.title);
 
@@ -11,8 +11,18 @@ const possibleSelectors = [
   '.questionLi',
   '.Py_tk',
   '.e-q-body',
+  '.a4-paper-problem',
+  '.container-problem',
+  '.exam-question',
+  '.paper-question',
+  '.homework-question',
+  '.question-item',
+  '.option-item',
   'div[id^="question"]',
+  '[data-question-id]',
+  '[data-problem-id]',
   '[class*="question"]',
+  '[class*="problem"]',
   '[class*="topic"]',
   '[class*="item"]'
 ];

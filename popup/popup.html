@@ -2,14 +2,36 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>学习通题目导出</title>
+  <title>题目导出助手</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="container">
-    <h2>学习通题目导出助手</h2>
+    <h2>题目导出助手</h2>
     <div id="status" class="status">准备就绪</div>
-    <button id="extractBtn" class="btn-primary">抓取并导出题目</button>
+    <div class="platform-list">
+      <section class="platform-card">
+        <div>
+          <h3>学习通</h3>
+          <p>超星考试、作业、测验页面</p>
+        </div>
+        <button class="btn-primary platform-btn" data-platform="chaoxing">导出</button>
+      </section>
+      <section class="platform-card">
+        <div>
+          <h3>雨课堂</h3>
+          <p>长江雨课堂试卷、考试结果页面</p>
+        </div>
+        <button class="btn-primary platform-btn" data-platform="yuketang">导出</button>
+      </section>
+      <section class="platform-card">
+        <div>
+          <h3>课堂派</h3>
+          <p>课堂派测试、作业详情页面</p>
+        </div>
+        <button class="btn-primary platform-btn" data-platform="ketangpai">导出</button>
+      </section>
+    </div>
     <div id="result" class="result hidden"></div>
   </div>
   <script src="popup.js"></script>

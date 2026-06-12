@@ -18,9 +18,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 将 Blob 转换为 ArrayBuffer，然后转为 base64 data URL
         const arrayBuffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
+        const CHUNK = 8192;
         let binary = '';
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
         }
         const base64 = btoa(binary);
         const dataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64}`;
@@ -49,5 +50,4 @@ function sanitizeFilename(name) {
   return name.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
 }
 
-console.log('学习通题目导出助手 - 后台服务已启动');
-
+console.log('题目导出助手 - 后台服务已启动');

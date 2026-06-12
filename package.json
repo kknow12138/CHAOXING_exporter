@@ -1,7 +1,7 @@
 {
-  "name": "chaoxing-question-exporter",
+  "name": "question-exporter",
   "version": "1.0.0",
-  "description": "学习通题目导出助手 - 浏览器扩展",
+  "description": "学习通 / 长江雨课堂 / 课堂派题目导出助手 - 浏览器扩展",
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch"

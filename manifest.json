@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "学习通题目导出助手",
+  "name": "题目导出助手",
   "version": "1.0.0",
-  "description": "从学习通考试/作业页面抓取题目并导出为Word文档",
+  "description": "从学习通、长江雨课堂和课堂派页面抓取题目并导出为 Word 文档",
   "permissions": [
     "activeTab",
     "scripting",
@@ -10,6 +10,11 @@
   ],
   "host_permissions": [
     "https://*.chaoxing.com/*",
+    "https://*.yuketang.cn/*",
+    "https://ketangpai.com/*",
+    "https://*.ketangpai.com/*",
+    "http://ketangpai.com/*",
+    "http://*.ketangpai.com/*",
     "https://*.edu.cn/*"
   ],
   "action": {
@@ -27,6 +32,11 @@
     {
       "matches": [
         "https://*.chaoxing.com/*",
+        "https://*.yuketang.cn/*",
+        "https://ketangpai.com/*",
+        "https://*.ketangpai.com/*",
+        "http://ketangpai.com/*",
+        "http://*.ketangpai.com/*",
         "https://*.edu.cn/*"
       ],
       "js": [

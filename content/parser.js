@@ -1,36 +1,503 @@
-class ChaoxingParser {
+class QuestionExportParser {
   constructor() {
-    // 核心选择器（多重回退策略）
-    this.selectors = {
-      // 题目容器 - 优先使用 .questionLi（作业页面），然后是 .TiMu（考试页面）
-      questionContainer: ['.questionLi', '.TiMu', '.Py_tk', '.e-q-body', 'div[id^="question"]'],
-      // 题目文本 - 添加 .qtContent（作业页面的题目文本）
-      questionTitle: ['.qtContent', '.Zy_TItle .clearfix', '.Zy_TItle', '.newZy_TItle', '.fontLabel', '.topic-title', '.e-q-q'],
-      // 选项 - 作业页面使用 .mark_letter 下的 li
-      options: ['.mark_letter li', 'ul li'],
-      answerBox: ['.mark_answer', '.rightAnswerContent', '.newAnswerBx', '.answerBx', '.lookAnswer', '.answer', '.correctAnswer'],
-      checkedMarker: ['input:checked', '.ri', '.dui', '.correct']
+    this.platform = this.detectPlatform();
+    this.platformConfigs = this.createPlatformConfigs();
+    this.selectors = this.platformConfigs[this.platform] || this.platformConfigs.generic;
+    this.allQuestionContainerSelectors = [...new Set([
+      ...this.platformConfigs.chaoxing.questionContainer,
+      ...this.platformConfigs.yuketang.questionContainer,
+      ...this.platformConfigs.ketangpai.questionContainer,
+      ...this.platformConfigs.generic.questionContainer
+    ])];
+    this.mergedOptionSelectors = [
+      ...this.selectors.options,
+      ...this.platformConfigs.generic.options
+    ];
+    this._scoreCache = new WeakMap();
+  }
+
+  createPlatformConfigs() {
+    return {
+      chaoxing: {
+        questionContainer: [
+          '.questionLi',
+          '.TiMu',
+          '.Py_tk',
+          '.e-q-body',
+          'div[id^="question"]'
+        ],
+        questionTitle: [
+          '.qtContent',
+          '.Zy_TItle .clearfix',
+          '.Zy_TItle',
+          '.newZy_TItle',
+          '.fontLabel',
+          '.topic-title',
+          '.e-q-q'
+        ],
+        options: [
+          '.mark_letter li',
+          '.mark_letter .clearfix',
+          '.answerList li',
+          'ul li'
+        ],
+        answerBox: [
+          '.mark_answer',
+          '.rightAnswerContent',
+          '.newAnswerBx',
+          '.answerBx',
+          '.lookAnswer',
+          '.answer',
+          '.correctAnswer'
+        ],
+        checkedMarker: [
+          'input:checked',
+          '.ri',
+          '.dui',
+          '.correct',
+          '.right'
+        ],
+        pageTitle: [
+          '.ceyan_name h3',
+          '.mark_title',
+          '.examTit',
+          'h1',
+          'h2'
+        ]
+      },
+      yuketang: {
+        questionContainer: [
+          '.subject-item',
+          '.result_item',
+          '[data-question-id]',
+          '[data-problem-id]',
+          '.a4-paper-problem',
+          '.container-problem',
+          '[class*="problem-item"]',
+          '[class*="problemItem"]',
+          '[class*="question-item"]',
+          '[class*="questionItem"]',
+          '[class*="problem"]',
+          '[class*="question"]',
+          '[class*="exercise"]'
+        ],
+        questionTitle: [
+          '.item-body .clearfix.exam-font',
+          '.item-body h4',
+          '.item-body p',
+          '.item-type',
+          '[class*="ProblemTitle"]',
+          '[class*="problem-title"]',
+          '[class*="question-title"]',
+          '[class*="title"]',
+          '[class*="content"]',
+          'h1',
+          'h2',
+          'h3'
+        ],
+        options: [
+          '.list-unstyled li',
+          '.list-unstyled-radio li',
+          '.list-unstyled-checkbox li',
+          '.el-radio__label',
+          '.el-checkbox__label',
+          '.radioText',
+          '.checkboxText',
+          '[class*="ProblemSelection"] [class*="option"]',
+          '[class*="ProblemSingle"] [class*="option"]',
+          '[class*="ProblemMulti"] [class*="option"]',
+          '[class*="answer--multiple-choice"] [class*="option"]',
+          '[class*="answer-content-container"] [class*="option"]',
+          '[class*="answer__item"]',
+          '[class*="option"]',
+          '[role="radio"]',
+          '[role="checkbox"]',
+          'label'
+        ],
+        answerBox: [
+          '.item-footer',
+          '.item-footer--header',
+          '.grade',
+          '[class*="RightAnswer"]',
+          '[class*="right-answer"]',
+          '[class*="answerAndAnalysis"]',
+          '[class*="answer-content"]',
+          '[class*="answer__wrap"]',
+          '[class*="analysis"]',
+          '[class*="解析"]'
+        ],
+        checkedMarker: [
+          'input:checked',
+          '.is-checked',
+          '.dot-success',
+          '[aria-checked="true"]',
+          '.checked',
+          '.selected',
+          '.active',
+          '.right'
+        ],
+        pageTitle: [
+          '.header-title',
+          '.header-content .el-col',
+          '.header',
+          '[class*="quiz-title"]',
+          '[class*="paper-title"]',
+          '[class*="exam-title"]',
+          '[class*="activity-title"]',
+          '[class*="title"]',
+          'h1',
+          'h2'
+        ]
+      },
+      ketangpai: {
+        questionContainer: [
+          '.student-detail-question-block',
+          '[class*="student-detail-question-block"]',
+          '[class*="plugins-testType-"]',
+          '.question-item',
+          '.questions-item',
+          '.problem-item',
+          '.subject-item',
+          '.exam-question',
+          '.paper-question',
+          '.test-paper-question',
+          '.homework-question',
+          '.work-question',
+          '[data-question-id]',
+          '[data-problem-id]',
+          '[data-id]',
+          '[class*="question-item"]',
+          '[class*="questionItem"]',
+          '[class*="problem-item"]',
+          '[class*="problemItem"]',
+          '[class*="subject-item"]',
+          '[class*="paper-question"]',
+          '[class*="exam-question"]',
+          '[class*="homework-question"]',
+          '[class*="question"]'
+        ],
+        questionTitle: [
+          '.content-box',
+          '[class*="-content"] .content-box',
+          '.DocumentTitle-content > .content-box',
+          '.question-title',
+          '.question-stem',
+          '.question-content',
+          '.stem',
+          '.subject-title',
+          '.problem-title',
+          '.topic-title',
+          '.html-content',
+          '.content',
+          '[class*="question-title"]',
+          '[class*="questionTitle"]',
+          '[class*="question-stem"]',
+          '[class*="questionStem"]',
+          '[class*="question-content"]',
+          '[class*="questionContent"]',
+          '[class*="subject-title"]',
+          '[class*="problem-title"]',
+          '[class*="stem"]',
+          '[class*="title"]',
+          'h1',
+          'h2',
+          'h3'
+        ],
+        options: [
+          '.SingleChoice-radio .el-radio__label',
+          '.Multiplechoice-radio .el-checkbox__label',
+          '.Judge-content .el-radio__label',
+          '.choice .radio-title',
+          '.radio-title',
+          '.option-item',
+          '.answer-item',
+          '.choice-item',
+          '.question-option',
+          '.el-radio',
+          '.el-checkbox',
+          '.el-radio__label',
+          '.el-checkbox__label',
+          '[class*="option-item"]',
+          '[class*="optionItem"]',
+          '[class*="answer-item"]',
+          '[class*="answerItem"]',
+          '[class*="choice-item"]',
+          '[class*="choiceItem"]',
+          '[class*="question-option"]',
+          '[class*="option"]',
+          '[role="radio"]',
+          '[role="checkbox"]',
+          'label',
+          'li'
+        ],
+        answerBox: [
+          '.answer-correct-type',
+          '.answer-correct',
+          '.DocumentTitle-reference',
+          '.answer',
+          '.answer-content',
+          '.right-answer',
+          '.correct-answer',
+          '.standard-answer',
+          '.reference-answer',
+          '.analysis',
+          '.parse',
+          '.solution',
+          '[class*="right-answer"]',
+          '[class*="rightAnswer"]',
+          '[class*="correct-answer"]',
+          '[class*="correctAnswer"]',
+          '[class*="standard-answer"]',
+          '[class*="reference-answer"]',
+          '[class*="answer-content"]',
+          '[class*="answerContent"]',
+          '[class*="analysis"]',
+          '[class*="parse"]'
+        ],
+        checkedMarker: [
+          'input:checked',
+          '.is-checked',
+          '.checked',
+          '.selected',
+          '.active',
+          '.right',
+          '.correct',
+          '[aria-checked="true"]'
+        ],
+        pageTitle: [
+          '.homework-title',
+          '.work-title',
+          '.exam-title',
+          '.paper-title',
+          '.test-title',
+          '.task-title',
+          '.header-title',
+          '[class*="homework-title"]',
+          '[class*="work-title"]',
+          '[class*="exam-title"]',
+          '[class*="paper-title"]',
+          '[class*="task-title"]',
+          '[class*="title"]',
+          'h1',
+          'h2'
+        ]
+      },
+      generic: {
+        questionContainer: [
+          '[data-question-id]',
+          '[data-problem-id]',
+          '[id*="question"]',
+          '[id*="problem"]',
+          '[class*="question-item"]',
+          '[class*="question"]',
+          '[class*="problem-item"]',
+          '[class*="problem"]',
+          '[class*="exercise"]',
+          '[class*="topic-item"]',
+          '[class*="topic"]'
+        ],
+        questionTitle: [
+          '[class*="title"]',
+          '[class*="content"]',
+          '[class*="stem"]',
+          '[class*="body"]',
+          'h1',
+          'h2',
+          'h3',
+          'p'
+        ],
+        options: [
+          '[class*="option"]',
+          '[class*="choice"]',
+          '[role="radio"]',
+          '[role="checkbox"]',
+          'label',
+          'li'
+        ],
+        answerBox: [
+          '[class*="answer"]',
+          '[class*="analysis"]',
+          '[class*="explain"]'
+        ],
+        checkedMarker: [
+          'input:checked',
+          '[aria-checked="true"]',
+          '.checked',
+          '.selected',
+          '.active',
+          '.correct',
+          '.right'
+        ],
+        pageTitle: [
+          'h1',
+          'h2',
+          'title'
+        ]
+      }
     };
   }
 
-  // 查找所有题目
-  findQuestions() {
-    // 尝试多个选择器
-    for (const selector of this.selectors.questionContainer) {
-      const questions = document.querySelectorAll(selector);
-      if (questions.length > 0) {
-        console.log(`找到 ${questions.length} 道题目，使用选择器: ${selector}`);
-        return questions;
-      }
+  detectPlatform() {
+    const host = window.location.hostname;
+
+    if (host.includes('chaoxing.com')) {
+      return 'chaoxing';
     }
 
-    // 如果都没找到，返回空数组
-    console.warn('未找到题目，尝试的选择器:', this.selectors.questionContainer);
-    return [];
+    if (host.includes('yuketang.cn')) {
+      return 'yuketang';
+    }
+
+    if (host.includes('ketangpai.com')) {
+      return 'ketangpai';
+    }
+
+    return 'generic';
   }
 
-  // 解析单个题目
+  findQuestions() {
+    const attempts = [];
+
+    for (const selector of this.selectors.questionContainer) {
+      const elements = Array.from(document.querySelectorAll(selector));
+      const normalized = this.normalizeQuestionCandidates(elements);
+
+      if (normalized.length === 0) {
+        continue;
+      }
+
+      const score = this.scoreQuestionSet(normalized);
+      attempts.push({ selector, elements: normalized, score });
+    }
+
+    attempts.sort((a, b) => b.score - a.score);
+
+    if (attempts.length > 0) {
+      return attempts[0].elements;
+    }
+
+    const fallback = this.findQuestionsByInteractiveElements();
+    return fallback;
+  }
+
+  normalizeQuestionCandidates(elements) {
+    const filtered = elements.filter((element) => this.isQuestionCandidate(element));
+    const unique = Array.from(new Set(filtered));
+
+    return unique.filter((element) => {
+      return !unique.some((other) => other !== element && element.contains(other));
+    });
+  }
+
+  isQuestionCandidate(element) {
+    if (!element || !element.innerText) {
+      return false;
+    }
+
+    const text = this.cleanText(this.decryptText(element.innerText));
+    if (text.length < 8) {
+      return false;
+    }
+
+    const score = this.scoreQuestionElement(element, text);
+    return score >= 4;
+  }
+
+  scoreQuestionElement(element, text = null) {
+    if (!text && this._scoreCache.has(element)) {
+      return this._scoreCache.get(element);
+    }
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || ''));
+    let score = 0;
+
+    if (element.dataset.questionId || element.dataset.problemId) {
+      score += 4;
+    }
+
+    if (this.platform === 'ketangpai' && this.isKetangpaiQuestionElement(element)) {
+      score += 5;
+    }
+
+    if (this.hasQuestionTypeKeyword(plainText)) {
+      score += 2;
+    }
+
+    const optionCount = this.estimateOptionCount(element);
+    if (optionCount >= 2) {
+      score += 3;
+    }
+
+    const interactiveCount = element.querySelectorAll('input, textarea, [role="radio"], [role="checkbox"]').length;
+    if (interactiveCount > 0) {
+      score += Math.min(interactiveCount, 3);
+    }
+
+    if (plainText.length >= 20) {
+      score += 1;
+    }
+
+    if (this.looksLikeQuestionListContainer(element)) {
+      score -= 3;
+    }
+
+    if (!text) {
+      this._scoreCache.set(element, score);
+    }
+    return score;
+  }
+
+  scoreQuestionSet(elements) {
+    const totalScore = elements.reduce((sum, element) => sum + this.scoreQuestionElement(element), 0);
+    const averageScore = totalScore / elements.length;
+    return averageScore * 10 + Math.min(elements.length, 50);
+  }
+
+  looksLikeQuestionListContainer(element) {
+    const children = Array.from(element.children);
+    const questionLikeChildren = children.filter((child) => this.isQuestionCandidateLite(child));
+    return questionLikeChildren.length >= 2;
+  }
+
+  isQuestionCandidateLite(element) {
+    if (!element || !element.innerText) {
+      return false;
+    }
+
+    const text = this.cleanText(this.decryptText(element.innerText));
+    if (text.length < 8) {
+      return false;
+    }
+
+    return this.estimateOptionCount(element) >= 2 || this.hasQuestionTypeKeyword(text);
+  }
+
+  findQuestionsByInteractiveElements() {
+    const interactiveElements = document.querySelectorAll('input, textarea, [role="radio"], [role="checkbox"]');
+    const roots = new Set();
+
+    interactiveElements.forEach((element) => {
+      let current = element.parentElement;
+      let depth = 0;
+
+      while (current && current !== document.body && depth < 8) {
+        if (this.isQuestionCandidate(current)) {
+          roots.add(current);
+          break;
+        }
+
+        current = current.parentElement;
+        depth += 1;
+      }
+    });
+
+    return this.normalizeQuestionCandidates(Array.from(roots));
+  }
+
   parseQuestion(questionElement, index) {
+    if (this.platform === 'ketangpai') {
+      return this.parseKetangpaiQuestion(questionElement, index);
+    }
+
     const question = {
       number: index + 1,
       title: this.extractTitle(questionElement),
@@ -39,137 +506,465 @@ class ChaoxingParser {
       type: null
     };
 
-    // 推断题型
-    question.type = this.inferQuestionType(question);
+    question.type = this.inferQuestionType(question, questionElement);
     return question;
   }
 
-  // 提取题干（支持多重选择器回退）
+  parseKetangpaiQuestion(questionElement, index) {
+    const question = {
+      number: index + 1,
+      title: this.extractKetangpaiTitle(questionElement),
+      options: this.extractKetangpaiOptions(questionElement),
+      answer: this.extractKetangpaiAnswer(questionElement),
+      type: null
+    };
+
+    question.type = this.inferKetangpaiQuestionType(questionElement, question);
+    return question;
+  }
+
+  isKetangpaiQuestionElement(element) {
+    if (!element || !element.classList) {
+      return false;
+    }
+
+    return element.classList.contains('student-detail-question-block') ||
+      Array.from(element.classList).some((className) => className.startsWith('plugins-testType-')) ||
+      Boolean(element.querySelector('[class*="plugins-testType-"]'));
+  }
+
+  getKetangpaiTypeComponent(element) {
+    if (element.matches && element.matches('[class*="plugins-testType-"]')) {
+      return element;
+    }
+
+    return element.querySelector('[class*="plugins-testType-"]') || element;
+  }
+
+  extractKetangpaiTitle(element) {
+    const component = this.getKetangpaiTypeComponent(element);
+    const titleElement = component.querySelector('.content-box');
+
+    if (titleElement) {
+      const text = this.cleanTitleText(titleElement.innerText || titleElement.textContent || '');
+      if (text) {
+        return text;
+      }
+    }
+
+    const fullText = this.cleanText(this.decryptText(component.innerText || component.textContent || ''));
+    const withoutPrefix = fullText.replace(/^\d+[\.\s、:：)]*\s*(名词解释|单选题|多选题|判断题|填空题|简答题|主观题)?\s*（?[\d.]+分）?\s*难度[:：]\S+\s*/i, '');
+    const title = withoutPrefix
+      .replace(/\s*(我的答案|未作答|参考答案|试题解析).*$/i, '')
+      .trim();
+
+    return title || '未找到题目';
+  }
+
+  extractKetangpaiOptions(element) {
+    const component = this.getKetangpaiTypeComponent(element);
+    const optionElements = Array.from(component.querySelectorAll(
+      '.SingleChoice-radio .el-radio__label, ' +
+      '.Multiplechoice-radio .el-checkbox__label, ' +
+      '.Judge-content .el-radio__label, ' +
+      '.choice .radio-title, ' +
+      '.radio-title'
+    )).filter((node) => this.cleanText(node.innerText || node.textContent || ''));
+
+    if (optionElements.length >= 2) {
+      return this.buildOptions(optionElements);
+    }
+
+    return this.findOptionsByText(component);
+  }
+
+  extractKetangpaiAnswer(element) {
+    const component = this.getKetangpaiTypeComponent(element);
+    const answerElement = component.querySelector('.answer-correct-type');
+
+    if (answerElement) {
+      const text = this.cleanKetangpaiAnswerText(answerElement.innerText || answerElement.textContent || '');
+      if (text) {
+        return text;
+      }
+    }
+
+    const referenceElements = Array.from(component.querySelectorAll('.DocumentTitle-reference'));
+    const referenceAnswer = referenceElements
+      .map((node) => this.cleanKetangpaiAnswerText(node.innerText || node.textContent || ''))
+      .find((text) => text && text !== '我的答案');
+
+    if (referenceAnswer) {
+      return referenceAnswer;
+    }
+
+    const fullText = this.cleanText(this.decryptText(component.innerText || component.textContent || ''));
+    const match = fullText.match(/参考答案\s*(.+?)(?:\s*试题解析|$)/);
+    return match ? this.cleanText(match[1]) : null;
+  }
+
+  cleanKetangpaiAnswerText(text) {
+    return this.cleanAnswerText(text)
+      .replace(/^未作答\s*/i, '')
+      .replace(/^我的答案\s*/i, '')
+      .replace(/^参考答案\s*/i, '')
+      .replace(/\s*试题解析\s*$/i, '')
+      .trim();
+  }
+
+  inferKetangpaiQuestionType(element, question) {
+    const component = this.getKetangpaiTypeComponent(element);
+    const className = component.className || '';
+    const fullText = this.cleanText(component.innerText || component.textContent || '');
+
+    if (/DocumentTitle|名词解释/.test(className) || /名词解释/.test(fullText)) {
+      return '名词解释';
+    }
+
+    if (/Multiplechoice|多选题/i.test(className) || /多选题/.test(fullText)) {
+      return '多选题';
+    }
+
+    if (/Judge|判断题/i.test(className) || /判断题/.test(fullText)) {
+      return '判断题';
+    }
+
+    if (/SingleChoice|单选题/i.test(className) || /单选题/.test(fullText)) {
+      return '单选题';
+    }
+
+    return this.inferQuestionType(question, element);
+  }
+
+  extractPageTitle() {
+    for (const selector of this.selectors.pageTitle) {
+      const titleElement = document.querySelector(selector);
+      if (titleElement) {
+        const text = this.cleanText(this.decryptText(titleElement.innerText || titleElement.textContent || ''));
+        if (text && text.length >= 2) {
+          return this.sanitizePageTitle(text);
+        }
+      }
+    }
+
+    return this.sanitizePageTitle(document.title || '题目导出');
+  }
+
+  sanitizePageTitle(title) {
+    return this.cleanText(
+      title
+        .replace(/[-_|\s]*(学习通|超星|长江雨课堂|雨课堂).*$/i, '')
+        .replace(/[-_|\s]*(课堂派|ketangpai).*$/i, '')
+        .replace(/\s*多次答题取\s*最高成绩\s*$/i, '')
+        .replace(/\s*用时[:：].*$/i, '')
+    ) || '题目导出';
+  }
+
   extractTitle(element) {
     for (const selector of this.selectors.questionTitle) {
       const titleElement = element.querySelector(selector);
       if (titleElement) {
-        let text = titleElement.innerText.trim();
-        text = this.decryptText(text);
-        return this.cleanText(text);
+        const text = this.cleanTitleText(titleElement.innerText || titleElement.textContent || '');
+        if (text && !this.isQuestionTypeOnlyText(text)) {
+          return text;
+        }
       }
     }
-    return "未找到题目";
+
+    const candidate = this.extractTitleFromText(element);
+    return candidate || '未找到题目';
   }
 
-  // 提取选项
-  extractOptions(element) {
-    const options = [];
+  extractTitleFromText(element) {
+    const clone = element.cloneNode(true);
+    const noiseSelectors = [
+      ...this.selectors.options,
+      ...this.selectors.answerBox,
+      'input',
+      'textarea',
+      'button',
+      'script',
+      'style'
+    ];
 
-    // 尝试多个选择器
-    let optionElements = null;
-    for (const selector of this.selectors.options) {
-      optionElements = element.querySelectorAll(selector);
-      if (optionElements.length > 0) {
-        break;
+    noiseSelectors.forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((node) => node.remove());
+    });
+
+    const texts = Array.from(clone.querySelectorAll('*'))
+      .map((node) => this.cleanTitleText(node.innerText || node.textContent || ''))
+      .filter((text) => text && text.length >= 6 && !this.isOptionLikeText(text));
+
+    if (texts.length > 0) {
+      return texts.sort((a, b) => b.length - a.length)[0];
+    }
+
+    return this.cleanTitleText(clone.innerText || clone.textContent || '');
+  }
+
+  extractOptions(element) {
+    for (const selector of this.mergedOptionSelectors) {
+      const optionElements = Array.from(element.querySelectorAll(selector))
+        .filter((node) => this.isUsefulOptionNode(node));
+
+      if (optionElements.length >= 2) {
+        return this.buildOptions(optionElements);
       }
     }
 
-    if (!optionElements || optionElements.length === 0) {
-      return options;
+    const fallbackOptions = this.findOptionsByText(element);
+    if (fallbackOptions.length >= 2) {
+      return fallbackOptions;
     }
 
-    optionElements.forEach((opt, idx) => {
-      let text = opt.innerText.trim();
-      text = this.decryptText(text);
-      text = this.cleanText(text);
+    return [];
+  }
 
-      // 检测是否为选中/正确答案
-      const isChecked = this.selectors.checkedMarker.some(
-        selector => opt.querySelector(selector)
-      );
+  isUsefulOptionNode(node) {
+    const text = this.cleanText(this.decryptText(node.innerText || node.textContent || ''));
+    if (!text) {
+      return false;
+    }
 
+    if (text.length > 200) {
+      return false;
+    }
+
+    return this.isOptionLikeText(text) || node.querySelector('input, [role="radio"], [role="checkbox"]');
+  }
+
+  findOptionsByText(element) {
+    const candidates = Array.from(element.querySelectorAll('*'))
+      .map((node) => this.cleanText(this.decryptText(node.innerText || node.textContent || '')))
+      .filter((text) => this.isOptionLikeText(text));
+
+    const uniqueCandidates = Array.from(new Set(candidates)).slice(0, 8);
+
+    return uniqueCandidates.map((text, index) => {
+      const parsed = this.parseOptionText(text);
+      return {
+        label: parsed.label || String.fromCharCode(65 + index),
+        text: parsed.text,
+        isChecked: false
+      };
+    });
+  }
+
+  buildOptions(optionElements) {
+    const seen = new Set();
+    const options = [];
+
+    optionElements.forEach((optionElement, index) => {
+      const rawText = this.cleanText(this.decryptText(optionElement.innerText || optionElement.textContent || ''));
+      const parsed = this.parseOptionText(rawText);
+      const dedupeKey = `${parsed.label || index}-${parsed.text}`;
+
+      if (!parsed.text || seen.has(dedupeKey)) {
+        return;
+      }
+
+      seen.add(dedupeKey);
       options.push({
-        label: String.fromCharCode(65 + idx), // A, B, C, D...
-        text: text,
-        isChecked: isChecked
+        label: parsed.label || String.fromCharCode(65 + index),
+        text: parsed.text,
+        isChecked: this.isOptionChecked(optionElement)
       });
     });
 
     return options;
   }
 
-  // 提取答案/解析
+  parseOptionText(text) {
+    const normalized = this.cleanText(text);
+    const match = normalized.match(/^([A-H])[\.\s、:：\)]\s*(.+)$/i);
+
+    if (match) {
+      return {
+        label: match[1].toUpperCase(),
+        text: this.cleanText(match[2])
+      };
+    }
+
+    if (/^[A-H]$/.test(normalized)) {
+      return {
+        label: normalized,
+        text: normalized
+      };
+    }
+
+    return {
+      label: null,
+      text: normalized
+    };
+  }
+
+  isOptionChecked(optionElement) {
+    const result = this.selectors.checkedMarker.some((selector) => {
+      return optionElement.matches(selector) || optionElement.querySelector(selector);
+    });
+
+    if (result) {
+      return true;
+    }
+
+    const container = optionElement.closest('li, label, .el-radio, .el-checkbox');
+    if (!container) {
+      return false;
+    }
+
+    return this.selectors.checkedMarker.some((selector) => {
+      return container.matches(selector) || container.querySelector(selector);
+    });
+  }
+
+  estimateOptionCount(element) {
+    const selectors = [
+      ...this.selectors.options,
+      '[class*="option"]',
+      '[role="radio"]',
+      '[role="checkbox"]'
+    ];
+
+    for (const selector of selectors) {
+      const count = element.querySelectorAll(selector).length;
+      if (count >= 2) {
+        return count;
+      }
+    }
+
+    const textMatches = Array.from(element.querySelectorAll('*'))
+      .map((node) => this.cleanText(this.decryptText(node.innerText || node.textContent || '')))
+      .filter((text) => this.isOptionLikeText(text));
+
+    return textMatches.length;
+  }
+
   extractAnswer(element) {
     for (const selector of this.selectors.answerBox) {
       const answerElement = element.querySelector(selector);
       if (answerElement) {
-        let text = answerElement.innerText.trim();
-        text = this.decryptText(text);
-        return this.cleanText(text);
+        const text = this.cleanAnswerText(answerElement.innerText || answerElement.textContent || '');
+        if (text) {
+          return text;
+        }
       }
     }
-    return null;
+
+    const textCandidates = Array.from(element.querySelectorAll('*'))
+      .map((node) => this.cleanAnswerText(node.innerText || node.textContent || ''))
+      .filter((text) => this.isAnswerLikeText(text));
+
+    return textCandidates[0] || null;
   }
 
-  // 推断题型
-  inferQuestionType(question) {
+  inferQuestionType(question, element) {
+    const title = question.title || '';
+    const answer = question.answer || '';
     const optionCount = question.options.length;
-    if (optionCount === 0) {
-      return question.title.includes('填空') ? '填空题' : '简答题';
-    } else if (optionCount === 2) {
-      const texts = question.options.map(o => o.text.toLowerCase());
-      if (texts.some(t => t.includes('对') || t.includes('错') ||
-                          t.includes('true') || t.includes('false'))) {
-        return '判断题';
-      }
+    const checkedCount = question.options.filter((option) => option.isChecked).length;
+    const interactiveTypes = Array.from(element.querySelectorAll('input'))
+      .map((input) => input.type.toLowerCase());
+
+    if (/判断|true|false|对|错/i.test(title) || (optionCount === 2 && question.options.some((option) => /^(对|错|true|false)$/i.test(option.text)))) {
+      return '判断题';
     }
-    return question.title.includes('多选') ? '多选题' : '单选题';
+
+    if (/填空/i.test(title) || interactiveTypes.includes('text') || interactiveTypes.includes('textarea')) {
+      return '填空题';
+    }
+
+    if (/简答|问答|主观/i.test(title) || /简答|解析/i.test(answer)) {
+      return '简答题';
+    }
+
+    if (/多选/i.test(title) || interactiveTypes.includes('checkbox') || checkedCount > 1) {
+      return '多选题';
+    }
+
+    if (optionCount > 0) {
+      return '单选题';
+    }
+
+    return '未知题型';
   }
 
-  // 文本清理
+  hasQuestionTypeKeyword(text) {
+    return /(单选题|多选题|判断题|填空题|简答题|主观题|题目|问题|习题|试卷|作业|测验|考试)/.test(text);
+  }
+
+  isOptionLikeText(text) {
+    return /^([A-H])[\.\s、:：\)]\s*\S+/i.test(text);
+  }
+
+  isQuestionTypeOnlyText(text) {
+    return /^\d+\.(单选题|多选题|判断题|填空题|简答题|主观题)(\s*\(\d+分\))?$/i.test(text);
+  }
+
+  isAnswerLikeText(text) {
+    return /^(答案|正确答案|参考答案|解析)[:：]?\s*/.test(text);
+  }
+
+  cleanTitleText(text) {
+    const normalized = this.cleanText(this.decryptText(text));
+    return normalized
+      .replace(/^\d+[\.\s、:：)]\s*/, '')
+      .replace(/^(单选题|多选题|判断题|填空题|简答题|主观题)\s*/, '')
+      .trim();
+  }
+
+  cleanAnswerText(text) {
+    return this.cleanText(this.decryptText(text))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   cleanText(text) {
-    return text.replace(/\s+/g, ' ').trim();
+    return String(text || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
-  // 字体解密（调用 font-decrypt.js）
   decryptText(text) {
     if (window.fontDecryptor && window.fontDecryptor.isReady()) {
       return window.fontDecryptor.decrypt(text);
     }
+
     return text;
   }
 
-  // 调试页面结构
   debugPageStructure() {
     const info = {
+      platform: this.platform,
       url: window.location.href,
       title: document.title,
       possibleContainers: []
     };
 
-    // 检查常见的题目容器类名
-    const commonClasses = [
-      'TiMu', 'questionLi', 'Py_tk', 'e-q-body', 'question',
-      'topic', 'item', 'list-item', 'work-item'
-    ];
-
-    commonClasses.forEach(cls => {
-      const elements = document.querySelectorAll(`.${cls}`);
-      if (elements.length > 0) {
-        info.possibleContainers.push({
-          selector: `.${cls}`,
-          count: elements.length,
-          sample: elements[0].className
-        });
+    this.allQuestionContainerSelectors.forEach((selector) => {
+      try {
+        const elements = document.querySelectorAll(selector);
+        if (elements.length > 0) {
+          info.possibleContainers.push({
+            selector,
+            count: elements.length,
+            sampleClass: elements[0].className || null,
+            sampleId: elements[0].id || null
+          });
+        }
+      } catch (error) {
+        console.warn('调试选择器失败:', selector, error);
       }
     });
 
-    // 检查带 ID 的题目容器
-    const elementsWithId = document.querySelectorAll('[id*="question"], [id*="topic"], [id*="item"]');
-    if (elementsWithId.length > 0) {
-      info.possibleContainers.push({
-        selector: '[id*="question"]',
-        count: elementsWithId.length,
-        sample: elementsWithId[0].id
-      });
+    return info;
+  }
+
+  getNoQuestionMessage() {
+    if (this.platform === 'yuketang' && document.querySelector('.btn-quiz')) {
+      return '当前是长江雨课堂的考试总览页，不是试卷详情页。请先点击“查看试卷”进入题目页，再使用扩展导出。';
     }
 
-    return info;
+    return '未找到题目，请确认当前页面是学习通、长江雨课堂或课堂派的答题/作业/试卷页面。请打开浏览器控制台（F12）查看详细信息。';
   }
 }
