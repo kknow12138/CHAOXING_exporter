@@ -741,26 +741,31 @@ class QuestionExportParser {
   parseChaoxingQuestion(questionElement, index) {
     const title = this.extractChaoxingTitle(questionElement);
     const typeHint = this.inferChaoxingQuestionType({ title, options: [], answer: null }, questionElement);
-    const isFillIn = typeHint === '填空题' || typeHint === '简答题';
+    const hintedWritten = this.isChaoxingWrittenQuestionType(typeHint);
 
-    const options = isFillIn ? [] : this.extractChaoxingOptions(questionElement);
-    const answer = isFillIn
-      ? this.extractFillInAnswer(questionElement)
-      : this.extractChaoxingAnswer(questionElement, options);
+    const options = hintedWritten ? [] : this.extractChaoxingOptions(questionElement);
+    const questionType = hintedWritten
+      ? typeHint
+      : this.inferChaoxingQuestionType({ title, options, answer: null }, questionElement);
+    const isWritten = this.isChaoxingWrittenQuestionType(questionType);
+    const answer = isWritten
+      ? this.extractChaoxingWrittenAnswer(questionElement)
+      : this.extractChaoxingAnswer(questionElement, options, questionType);
 
     const question = {
       number: index + 1,
       title,
       options,
-      myAnswer: this.extractMyAnswer(questionElement),
-      correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
+      myAnswer: isWritten
+        ? (this.extractChaoxingRawMyAnswer(questionElement) || this.extractMyAnswer(questionElement))
+        : (this.extractChaoxingMyAnswer(questionElement, options) || this.extractMyAnswer(questionElement)),
+      correctAnswer: isWritten ? (this.extractChaoxingRawStandardAnswer(questionElement) || this.extractCorrectAnswer(questionElement)) : null,
       answer,
       analysis: this.extractAnalysis(questionElement),
       score: this.extractScore(questionElement),
-      type: null
+      type: questionType
     };
 
-    question.type = this.inferChaoxingQuestionType(question, questionElement);
     return question;
   }
 
@@ -894,12 +899,11 @@ class QuestionExportParser {
     }).slice(0, 8);
   }
 
-  extractChaoxingAnswer(element, options = []) {
-    const questionType = this.inferChaoxingQuestionType(
+  extractChaoxingAnswer(element, options = [], questionType = null) {
+    const resolvedQuestionType = questionType || this.inferChaoxingQuestionType(
       { title: this.extractChaoxingTitle(element), options, answer: null },
       element
     );
-
     const standardAnswer = this.extractChaoxingStandardAnswer(element, options);
     if (standardAnswer) {
       return standardAnswer;
@@ -911,7 +915,7 @@ class QuestionExportParser {
       return myAnswer;
     }
 
-    if (questionType === '判断题') {
+    if (resolvedQuestionType === '判断题') {
       const markerAnswer = this.extractChaoxingJudgeAnswerByMarker(element, options);
       if (markerAnswer) {
         return markerAnswer;
@@ -962,12 +966,32 @@ class QuestionExportParser {
     }
 
     const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
-    const answerMatch = fullText.match(/(?:参考答案|正确答案|答案)[:：]?\s*(.+?)(?:\s*(?:解析|答案解析|我的答案|收起解析)|$)/);
+    const answerMatch = fullText.match(/(?:标准答案|参考答案|正确答案)[:：]?\s*(.+?)(?:\s*(?:解析|答案解析|我的答案|收起解析)|$)/);
     return answerMatch ? this.normalizeChaoxingAnswerText(this.cleanChaoxingAnswerText(answerMatch[1]), options) : null;
   }
 
+  extractChaoxingWrittenAnswer(element) {
+    const standardAnswer = this.extractChaoxingRawStandardAnswer(element);
+    if (standardAnswer) {
+      return standardAnswer;
+    }
+
+    const resultStatus = this.getChaoxingAnswerResultStatus(element);
+    const myAnswer = this.extractChaoxingRawMyAnswer(element);
+
+    if (resultStatus === 'incorrect' && myAnswer) {
+      return this.formatChaoxingWrongAnswer(myAnswer);
+    }
+
+    if (myAnswer) {
+      return myAnswer;
+    }
+
+    return this.extractFillInAnswer(element);
+  }
+
   extractChaoxingMyAnswer(element, options = []) {
-    const answer = this.extractChaoxingLabeledAnswer(element, /我的答案/);
+    const answer = this.extractChaoxingRawMyAnswer(element);
     return answer ? this.normalizeChaoxingAnswerText(answer, options) : null;
   }
 
@@ -1006,8 +1030,18 @@ class QuestionExportParser {
   }
 
   extractChaoxingStandardAnswer(element, options = []) {
-    const standardAnswer = this.extractChaoxingLabeledAnswer(element, /标准答案|正确答案|参考答案/);
+    const standardAnswer = this.extractChaoxingRawStandardAnswer(element);
     return standardAnswer ? this.normalizeChaoxingAnswerText(standardAnswer, options) : null;
+  }
+
+  extractChaoxingRawStandardAnswer(element) {
+    const answer = this.extractChaoxingLabeledAnswer(element, /标准答案|正确答案|参考答案/);
+    return answer ? this.cleanChaoxingAnswerText(answer) : null;
+  }
+
+  extractChaoxingRawMyAnswer(element) {
+    const answer = this.extractChaoxingLabeledAnswer(element, /我的答案/);
+    return answer ? this.cleanChaoxingAnswerText(answer) : null;
   }
 
   extractChaoxingLabeledAnswer(element, labelPattern) {
@@ -1119,6 +1153,10 @@ class QuestionExportParser {
     }
 
     return this.inferQuestionType(question, element);
+  }
+
+  isChaoxingWrittenQuestionType(type) {
+    return /^(填空题|简答题|主观题|问答题|论述题|名词解释)$/.test(type || '');
   }
 
   cleanChaoxingTitleText(text) {
@@ -2072,7 +2110,7 @@ class QuestionExportParser {
   }
 
   isAnswerLikeText(text) {
-    return /^(答案|正确答案|参考答案|解析)[:：]?\s*/.test(text);
+    return /^(答案|正确答案|参考答案|标准答案|解析)[:：]?\s*/.test(text);
   }
 
   cleanTitleText(text) {
