@@ -47,7 +47,7 @@ async function handlePlatformExtract(platform) {
       throw new Error(config.pageHint);
     }
 
-    const response = await extractQuestionsFromTab(tab.id);
+    const response = await extractQuestionsFromTab(tab.id, platform);
 
     if (!response.success) {
       throw new Error(response.error);
@@ -92,7 +92,14 @@ async function generateAndDownload(data) {
   }
 }
 
-async function extractQuestionsFromTab(tabId) {
+async function extractQuestionsFromTab(tabId, platform) {
+  if (platform === 'chaoxing') {
+    const frameResponse = await extractQuestionsFromAllFrames(tabId);
+    if (frameResponse && frameResponse.success) {
+      return frameResponse;
+    }
+  }
+
   try {
     return await requestQuestions(tabId);
   } catch (error) {
@@ -105,6 +112,77 @@ async function extractQuestionsFromTab(tabId) {
   }
 }
 
+async function extractQuestionsFromAllFrames(tabId) {
+  let results = await runExtractorInAllFrames(tabId);
+  let bestResponse = pickBestFrameResponse(results);
+
+  if (bestResponse) {
+    return bestResponse;
+  }
+
+  await injectContentScripts(tabId, true);
+  results = await runExtractorInAllFrames(tabId);
+  bestResponse = pickBestFrameResponse(results);
+  return bestResponse || null;
+}
+
+async function runExtractorInAllFrames(tabId) {
+  try {
+    return await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: async () => {
+        const waitForFontDecryptor = () => new Promise((resolve) => {
+          const timer = setInterval(() => {
+            if (!window.fontDecryptor || window.fontDecryptor.isReady()) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, 100);
+
+          setTimeout(() => {
+            clearInterval(timer);
+            resolve();
+          }, 3000);
+        });
+
+        if (!window.QuestionExportParser) {
+          return { success: false, error: 'parser not ready' };
+        }
+
+        await waitForFontDecryptor();
+
+        const parser = new window.QuestionExportParser();
+        const questionElements = parser.findQuestions();
+
+        if (questionElements.length === 0) {
+          return { success: false, error: parser.getNoQuestionMessage() };
+        }
+
+        const questions = questionElements.map((element, index) => parser.parseQuestion(element, index));
+
+        return {
+          success: true,
+          data: {
+            title: parser.extractPageTitle(),
+            platform: parser.platform,
+            questions,
+            totalCount: questions.length
+          }
+        };
+      }
+    });
+  } catch (error) {
+    return [];
+  }
+}
+
+function pickBestFrameResponse(results) {
+  return (results || [])
+    .map((item) => item.result)
+    .filter((result) => result && result.success && result.data && result.data.totalCount > 0)
+    .sort((a, b) => b.data.totalCount - a.data.totalCount)[0] || null;
+}
+
 async function requestQuestions(tabId) {
   return await chrome.tabs.sendMessage(tabId, {
     action: 'extractQuestions'
@@ -115,9 +193,9 @@ function isMissingContentScriptError(error) {
   return /Receiving end does not exist|Could not establish connection/i.test(error.message || '');
 }
 
-async function injectContentScripts(tabId) {
+async function injectContentScripts(tabId, allFrames = false) {
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, allFrames },
     files: [
       'lib/typr.js',
       'lib/font-decrypt.js',

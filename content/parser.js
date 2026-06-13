@@ -24,7 +24,14 @@ class QuestionExportParser {
           '.questionLi',
           '.TiMu',
           '.Py_tk',
+          '.Zy_TItle',
+          '.Cy_TItle',
+          '.TiMuDiv',
           '.e-q-body',
+          '[class*="TiMu"]',
+          '[class*="questionLi"]',
+          '[class*="Zy_TItle"]',
+          '[class*="Cy_TItle"]',
           'div[id^="question"]'
         ],
         questionTitle: [
@@ -32,6 +39,12 @@ class QuestionExportParser {
           '.Zy_TItle .clearfix',
           '.Zy_TItle',
           '.newZy_TItle',
+          '.Cy_TItle',
+          '.TiMu .clearfix',
+          '.TiMu',
+          '.questionTitle',
+          '.question-title',
+          '.stem',
           '.fontLabel',
           '.topic-title',
           '.e-q-q'
@@ -47,6 +60,14 @@ class QuestionExportParser {
           '.rightAnswerContent',
           '.newAnswerBx',
           '.answerBx',
+          '.Py_answer',
+          '.Zy_answer',
+          '.Cy_answer',
+          '.answerCon',
+          '.answerContent',
+          '.analysis',
+          '.jiexitxt',
+          '.jiexi',
           '.lookAnswer',
           '.answer',
           '.correctAnswer'
@@ -494,7 +515,7 @@ class QuestionExportParser {
     const attempts = [];
 
     for (const selector of this.selectors.questionContainer) {
-      const elements = Array.from(document.querySelectorAll(selector));
+      const elements = this.normalizePlatformQuestionRoots(Array.from(document.querySelectorAll(selector)));
       const normalized = this.normalizeQuestionCandidates(elements);
 
       if (normalized.length === 0) {
@@ -511,8 +532,56 @@ class QuestionExportParser {
       return attempts[0].elements;
     }
 
+    if (this.platform === 'chaoxing') {
+      const textQuestions = this.findChaoxingQuestionsByText();
+      if (textQuestions.length > 0) {
+        return textQuestions;
+      }
+    }
+
     const fallback = this.findQuestionsByInteractiveElements();
     return fallback;
+  }
+
+  findChaoxingQuestionsByText() {
+    const candidates = Array.from(document.querySelectorAll('div, li, section, article, dd, dl'))
+      .filter((element) => {
+        const text = this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+        if (!/【(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)】/.test(text)) {
+          return false;
+        }
+
+        if (text.length < 20 || text.length > 5000) {
+          return false;
+        }
+
+        return /我的答案|正确答案|参考答案|答案/.test(text) || this.estimateOptionCount(element) >= 2;
+      });
+
+    return this.normalizeQuestionCandidates(candidates);
+  }
+
+  normalizePlatformQuestionRoots(elements) {
+    if (this.platform !== 'chaoxing') {
+      return elements;
+    }
+
+    return elements.map((element) => this.getChaoxingQuestionRoot(element));
+  }
+
+  getChaoxingQuestionRoot(element) {
+    if (!element) {
+      return element;
+    }
+
+    if (element.matches('.Zy_TItle, .Cy_TItle, .newZy_TItle, .qtContent, .fontLabel')) {
+      return element.parentElement && (
+        element.parentElement.closest('.TiMu, .questionLi, .Py_tk, .TiMuDiv, [class*="TiMu"], li') ||
+        element.parentElement
+      );
+    }
+
+    return element.closest('.TiMu, .questionLi, .Py_tk, .TiMuDiv, [class*="TiMu"]') || element;
   }
 
   normalizeQuestionCandidates(elements) {
@@ -550,6 +619,10 @@ class QuestionExportParser {
     }
 
     if (this.platform === 'ketangpai' && this.isKetangpaiQuestionElement(element)) {
+      score += 5;
+    }
+
+    if (this.platform === 'chaoxing' && this.isChaoxingQuestionElement(element, plainText)) {
       score += 5;
     }
 
@@ -633,6 +706,10 @@ class QuestionExportParser {
   }
 
   parseQuestion(questionElement, index) {
+    if (this.platform === 'chaoxing') {
+      return this.parseChaoxingQuestion(questionElement, index);
+    }
+
     if (this.platform === 'ketangpai') {
       return this.parseKetangpaiQuestion(questionElement, index);
     }
@@ -641,11 +718,19 @@ class QuestionExportParser {
       return this.parseZhihuishuQuestion(questionElement, index);
     }
 
+    const title = this.extractTitle(questionElement);
+    const typeHint = this.inferQuestionType({ title, options: [], answer: null }, questionElement);
+    const isFillIn = typeHint === '填空题' || typeHint === '简答题';
+
     const question = {
       number: index + 1,
-      title: this.extractTitle(questionElement),
-      options: this.extractOptions(questionElement),
-      answer: this.extractAnswer(questionElement),
+      title,
+      options: isFillIn ? [] : this.extractOptions(questionElement),
+      myAnswer: this.extractMyAnswer(questionElement),
+      correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
+      answer: isFillIn ? this.extractFillInAnswer(questionElement) : this.extractAnswer(questionElement),
+      analysis: this.extractAnalysis(questionElement),
+      score: this.extractScore(questionElement),
       type: null
     };
 
@@ -653,12 +738,475 @@ class QuestionExportParser {
     return question;
   }
 
-  parseKetangpaiQuestion(questionElement, index) {
+  parseChaoxingQuestion(questionElement, index) {
+    const title = this.extractChaoxingTitle(questionElement);
+    const typeHint = this.inferChaoxingQuestionType({ title, options: [], answer: null }, questionElement);
+    const isFillIn = typeHint === '填空题' || typeHint === '简答题';
+
+    const options = isFillIn ? [] : this.extractChaoxingOptions(questionElement);
+    const answer = isFillIn
+      ? this.extractFillInAnswer(questionElement)
+      : this.extractChaoxingAnswer(questionElement, options);
+
     const question = {
       number: index + 1,
-      title: this.extractKetangpaiTitle(questionElement),
-      options: this.extractKetangpaiOptions(questionElement),
-      answer: this.extractKetangpaiAnswer(questionElement),
+      title,
+      options,
+      myAnswer: this.extractMyAnswer(questionElement),
+      correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
+      answer,
+      analysis: this.extractAnalysis(questionElement),
+      score: this.extractScore(questionElement),
+      type: null
+    };
+
+    question.type = this.inferChaoxingQuestionType(question, questionElement);
+    return question;
+  }
+
+  isChaoxingQuestionElement(element, text = null) {
+    if (!element) {
+      return false;
+    }
+
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+    return element.classList.contains('questionLi') ||
+      element.classList.contains('TiMu') ||
+      element.classList.contains('Py_tk') ||
+      element.classList.contains('TiMuDiv') ||
+      /^(第?\d+[\.\s、:：)]|[\(\[【]?(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释))/i.test(plainText) ||
+      Boolean(element.querySelector('.Zy_TItle, .Cy_TItle, .qtContent, .Py_answer, .Zy_answer, textarea'));
+  }
+
+  extractChaoxingTitle(element) {
+    const titleSelectors = [
+      '.qtContent',
+      '.Zy_TItle .clearfix',
+      '.Zy_TItle',
+      '.newZy_TItle',
+      '.Cy_TItle',
+      '.TiMu .clearfix',
+      '.questionTitle',
+      '.question-title',
+      '.fontLabel',
+      '.stem',
+      '.topic-title',
+      '.e-q-q'
+    ];
+
+    for (const selector of titleSelectors) {
+      const titleElement = element.querySelector(selector);
+      if (titleElement) {
+        const text = this.cleanChaoxingTitleText(this.extractReadableText(titleElement));
+        if (text && !this.isQuestionTypeOnlyText(text)) {
+          return text;
+        }
+      }
+    }
+
+    return this.cleanChaoxingTitleText(this.extractTitleFromText(element)) || '未找到题目';
+  }
+
+  extractChaoxingOptions(element) {
+    const optionSelectors = [
+      '.mark_letter li',
+      '.mark_letter .clearfix',
+      '.answerList li',
+      '.Zy_ulTop li',
+      '.Cy_ulTop li',
+      '.ulTop li',
+      '.optionLi',
+      '.option-item',
+      '.e-q-options li',
+      'label'
+    ];
+
+    for (const selector of optionSelectors) {
+      const optionElements = Array.from(element.querySelectorAll(selector))
+        .filter((node) => this.isChaoxingOptionNode(node));
+
+      if (optionElements.length >= 2) {
+        return this.buildOptions(optionElements);
+      }
+    }
+
+    return this.findChaoxingOptionsByText(element);
+  }
+
+  isChaoxingOptionNode(node) {
+    const text = this.cleanText(this.decryptText(this.extractReadableText(node)));
+    if (!this.isOptionLikeText(text) || text.length > 260) {
+      return false;
+    }
+
+    if (this.isAnswerLikeText(text) || /^(解析|答案解析|我的答案|参考答案|正确答案)/.test(text)) {
+      return false;
+    }
+
+    if (/\s+[A-H][\.\s、:：\)]\s*\S+/.test(text)) {
+      return false;
+    }
+
+    const childOptionCount = Array.from(node.children || [])
+      .filter((child) => this.isOptionLikeText(this.cleanText(this.decryptText(this.extractReadableText(child)))))
+      .length;
+
+    return childOptionCount <= 1;
+  }
+
+  findChaoxingOptionsByText(element) {
+    const clone = element.cloneNode(true);
+    [
+      ...this.selectors.answerBox,
+      '.mark_answer',
+      '.rightAnswerContent',
+      '.newAnswerBx',
+      '.answerBx',
+      '.Py_answer',
+      '.Zy_answer',
+      '.Cy_answer',
+      '.analysis',
+      '.jiexitxt',
+      '.jiexi',
+      'textarea'
+    ].forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((node) => node.remove());
+    });
+
+    const text = this.cleanText(this.decryptText(this.extractReadableText(clone)));
+    const optionMatches = Array.from(text.matchAll(/(?:^|\s)([A-H])[\.\s、:：\)]\s*(.*?)(?=\s+[A-H][\.\s、:：\)]\s*|$)/gi))
+      .map((match) => ({
+        label: match[1].toUpperCase(),
+        text: this.cleanText(match[2]),
+        isChecked: false
+      }))
+      .filter((option) => option.text && !/^(正确答案|参考答案|答案|解析)/.test(option.text));
+
+    const seen = new Set();
+    return optionMatches.filter((option) => {
+      const key = `${option.label}-${option.text}`;
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+  }
+
+  extractChaoxingAnswer(element, options = []) {
+    const questionType = this.inferChaoxingQuestionType(
+      { title: this.extractChaoxingTitle(element), options, answer: null },
+      element
+    );
+
+    const standardAnswer = this.extractChaoxingStandardAnswer(element, options);
+    if (standardAnswer) {
+      return standardAnswer;
+    }
+
+    const resultStatus = this.getChaoxingAnswerResultStatus(element);
+    const myAnswer = this.extractChaoxingMyAnswer(element, options);
+    if (resultStatus === 'correct' && myAnswer) {
+      return myAnswer;
+    }
+
+    if (questionType === '判断题') {
+      const markerAnswer = this.extractChaoxingJudgeAnswerByMarker(element, options);
+      if (markerAnswer) {
+        return markerAnswer;
+      }
+    }
+
+    const answerSelectors = [
+      '.mark_answer',
+      '.rightAnswerContent',
+      '.newAnswerBx',
+      '.answerBx',
+      '.Py_answer',
+      '.Zy_answer',
+      '.Cy_answer',
+      '.answerCon',
+      '.answerContent',
+      '.lookAnswer',
+      '.correctAnswer',
+      '.analysis',
+      '.jiexitxt',
+      '.jiexi'
+    ];
+
+    for (const selector of answerSelectors) {
+      const answerElement = element.querySelector(selector);
+      if (answerElement) {
+        const answerText = this.cleanText(this.extractReadableText(answerElement));
+        if (/我的答案/.test(answerText)) {
+          continue;
+        }
+
+        const text = this.normalizeChaoxingAnswerText(
+          this.cleanChaoxingAnswerText(answerText),
+          options
+        );
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    if (resultStatus !== 'incorrect' && myAnswer) {
+      return myAnswer;
+    }
+
+    if (resultStatus === 'incorrect' && myAnswer) {
+      return this.formatChaoxingWrongAnswer(myAnswer);
+    }
+
+    const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
+    const answerMatch = fullText.match(/(?:参考答案|正确答案|答案)[:：]?\s*(.+?)(?:\s*(?:解析|答案解析|我的答案|收起解析)|$)/);
+    return answerMatch ? this.normalizeChaoxingAnswerText(this.cleanChaoxingAnswerText(answerMatch[1]), options) : null;
+  }
+
+  extractChaoxingMyAnswer(element, options = []) {
+    const answer = this.extractChaoxingLabeledAnswer(element, /我的答案/);
+    return answer ? this.normalizeChaoxingAnswerText(answer, options) : null;
+  }
+
+  getChaoxingAnswerResultStatus(element) {
+    const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
+
+    if (/(^|\s)0(?:\.0+)?\s*分/.test(fullText)) {
+      return 'incorrect';
+    }
+
+    if (/我的答案[:：]?.{0,20}(正确|答对|得分|满分)/.test(fullText) || /[1-9]\d*(?:\.\d+)?\s*分/.test(fullText)) {
+      return 'correct';
+    }
+
+    const answerNode = Array.from(element.querySelectorAll('*')).find((node) => {
+      const text = this.cleanText(this.extractReadableText(node));
+      return /^我的答案[:：]?/.test(text);
+    });
+
+    if (!answerNode) {
+      return 'unknown';
+    }
+
+    const scope = answerNode.closest('li, div, dd, dl, section, article') || answerNode.parentElement || answerNode;
+    const classText = this.collectClassText(scope).toLowerCase();
+
+    if (/(wrong|error|cuo|false|red|fail|incorrect)/i.test(classText)) {
+      return 'incorrect';
+    }
+
+    if (/(dui|right|correct|success|green|true)/i.test(classText)) {
+      return 'correct';
+    }
+
+    return 'unknown';
+  }
+
+  extractChaoxingStandardAnswer(element, options = []) {
+    const standardAnswer = this.extractChaoxingLabeledAnswer(element, /标准答案|正确答案|参考答案/);
+    return standardAnswer ? this.normalizeChaoxingAnswerText(standardAnswer, options) : null;
+  }
+
+  extractChaoxingLabeledAnswer(element, labelPattern) {
+    const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
+    const source = labelPattern.source;
+    const match = fullText.match(new RegExp(`(?:${source})[:：]?\\s*(.+?)(?=\\s*(?:标准答案|正确答案|参考答案|我的答案|答案解析|解析|收起解析|AI讲解|本题得分|得分|\\d+(?:\\.\\d+)?\\s*分)|$)`, 'i'));
+
+    if (match && this.cleanText(match[1])) {
+      return this.cleanChaoxingAnswerText(match[1]);
+    }
+
+    const labelNode = Array.from(element.querySelectorAll('*')).find((node) => {
+      const text = this.cleanText(this.extractReadableText(node));
+      return new RegExp(`^(${source})[:：]?$`, 'i').test(text);
+    });
+
+    if (labelNode) {
+      const fieldValues = this.extractChaoxingFieldValues(labelNode.parentElement || element);
+      if (fieldValues.length > 0) {
+        return this.cleanChaoxingAnswerText(fieldValues.join('；'));
+      }
+
+      const siblings = [];
+      let current = labelNode.nextElementSibling;
+      while (current) {
+        const text = this.cleanText(this.extractReadableText(current));
+        if (/^(标准答案|正确答案|参考答案|我的答案|答案解析|解析|收起解析|AI讲解|本题得分|得分)/.test(text) || /^\d+(?:\.\d+)?\s*分$/.test(text)) {
+          break;
+        }
+
+        if (text) {
+          siblings.push(text);
+        }
+
+        current = current.nextElementSibling;
+      }
+
+      if (siblings.length > 0) {
+        return this.cleanChaoxingAnswerText(siblings.join('；'));
+      }
+    }
+
+    return null;
+  }
+
+  extractChaoxingFieldValues(scope) {
+    return Array.from((scope || document).querySelectorAll('input, textarea'))
+      .map((field) => this.cleanText(field.value || field.getAttribute('value') || field.innerText || field.textContent || ''))
+      .filter(Boolean);
+  }
+
+  extractChaoxingJudgeAnswerByMarker(element, options = []) {
+    const marker = element.querySelector('.marking_dui, span.marking_dui, i.marking_dui');
+    if (!marker) {
+      return null;
+    }
+
+    const optionElement = marker.closest('li, label, .clearfix, .subject_node, .optionLi, .option-item, [class*="option"]') || marker.parentElement;
+    if (!optionElement) {
+      return null;
+    }
+
+    const rawText = this.cleanText(this.decryptText(this.extractReadableText(optionElement)));
+    const parsed = this.parseOptionText(rawText);
+
+    if (parsed.label && parsed.text) {
+      return `${parsed.label}. ${parsed.text}`;
+    }
+
+    const inferredText = /错|错误/.test(rawText) ? '错' : '对';
+    const matchedOption = options.find((option) => option.text === inferredText);
+    return matchedOption ? `${matchedOption.label}. ${matchedOption.text}` : inferredText;
+  }
+
+  inferChaoxingQuestionType(question, element) {
+    const text = this.cleanText(`${element.innerText || ''} ${question.title || ''}`);
+
+    const markedType = text.match(/【(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)】/);
+    if (markedType) {
+      return markedType[1];
+    }
+
+    if (/多选题/.test(text)) {
+      return '多选题';
+    }
+
+    if (/单选题/.test(text)) {
+      return '单选题';
+    }
+
+    if (/判断题/.test(text)) {
+      return '判断题';
+    }
+
+    if (/填空题/.test(text)) {
+      return '填空题';
+    }
+
+    if (/名词解释/.test(text)) {
+      return '名词解释';
+    }
+
+    if (/论述题/.test(text)) {
+      return '论述题';
+    }
+
+    if (/问答题|简答题|主观题/.test(text)) {
+      return '简答题';
+    }
+
+    return this.inferQuestionType(question, element);
+  }
+
+  cleanChaoxingTitleText(text) {
+    return this.cleanText(this.decryptText(text))
+      .replace(/^\d+[\.\s、:：)]*\s*/, '')
+      .replace(/^[\(\[【]?(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)[\)\]】]?\s*/i, '')
+      .replace(/^（?[\d.]+分）?\s*/, '')
+      .replace(/\s*(正确答案|参考答案|答案|我的答案|解析|答案解析|收起解析).*$/i, '')
+      .trim();
+  }
+
+  cleanChaoxingAnswerText(text) {
+    return this.cleanAnswerText(text)
+      .replace(/^(标准答案|正确答案|参考答案|我的答案|答案)[:：]?\s*/i, '')
+      .replace(/\s*(答案解析|解析|收起解析|AI讲解)\s*$/i, '')
+      .replace(/\s*(本题得分|得分)[:：]?\s*\d+(?:\.\d+)?\s*分?\s*$/i, '')
+      .trim();
+  }
+
+  normalizeChaoxingAnswerText(answer, options = []) {
+    const originalAnswer = this.cleanChaoxingAnswerText(answer);
+    const text = this.cleanText(originalAnswer)
+      .replace(/^[:：]\s*/, '')
+      .replace(/[，,、\s]+/g, '')
+      .replace(/[.。]+$/g, '')
+      .toUpperCase();
+
+    if (!text) {
+      return null;
+    }
+
+    if (/^(正确|对)$/.test(text)) {
+      const option = options.find((item) => /^(对|正确)$/.test(item.text));
+      return option ? `${option.label}. ${option.text}` : '对';
+    }
+
+    if (/^(错误|错)$/.test(text)) {
+      const option = options.find((item) => /^(错|错误)$/.test(item.text));
+      return option ? `${option.label}. ${option.text}` : '错';
+    }
+
+    const labeledTextMatch = this.cleanText(originalAnswer).match(/^([A-H])\s*[:：]\s*(.+?)[;；]?$/i);
+    if (labeledTextMatch) {
+      const label = labeledTextMatch[1].toUpperCase();
+      const option = options.find((item) => item.label === label);
+      return option ? `${option.label}. ${option.text}` : `${label}. ${this.cleanText(labeledTextMatch[2])}`;
+    }
+
+    if (/^[A-H]+$/.test(text)) {
+      const matchedOptions = text
+        .split('')
+        .map((label) => options.find((option) => option.label === label))
+        .filter(Boolean);
+
+      if (matchedOptions.length > 0) {
+        return this.formatChaoxingAnswerFromOptions(matchedOptions);
+      }
+
+      return text.split('').join('、');
+    }
+
+    return originalAnswer;
+  }
+
+  formatChaoxingAnswerFromOptions(options) {
+    return options.map((option) => `${option.label}. ${option.text}`).join('、');
+  }
+
+  formatChaoxingWrongAnswer(answer) {
+    return `我的答案（错误）：${answer}`;
+  }
+
+  parseKetangpaiQuestion(questionElement, index) {
+    const title = this.extractKetangpaiTitle(questionElement);
+    const typeHint = this.inferKetangpaiQuestionType(questionElement, { title, options: [], answer: null });
+    const isFillIn = typeHint === '填空题' || typeHint === '简答题' || typeHint === '名词解释';
+
+    const question = {
+      number: index + 1,
+      title,
+      options: isFillIn ? [] : this.extractKetangpaiOptions(questionElement),
+      myAnswer: this.extractMyAnswer(questionElement),
+      correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
+      answer: isFillIn
+        ? this.extractFillInAnswer(questionElement)
+        : this.extractKetangpaiAnswer(questionElement),
+      analysis: this.extractAnalysis(questionElement),
+      score: this.extractScore(questionElement),
       type: null
     };
 
@@ -669,23 +1217,35 @@ class QuestionExportParser {
   parseZhihuishuQuestion(questionElement, index) {
     const title = this.extractZhihuishuTitle(questionElement);
     const type = this.extractZhihuishuType(questionElement);
-    const options = type === '判断题'
-      ? this.extractZhihuishuJudgeOptions(questionElement)
-      : this.extractZhihuishuOptions(questionElement);
+    const isFillIn = type === '填空题' || type === '简答题' || type === '名词解释' || type === '论述题';
 
-    const checkedOptions = options.filter((o) => o.isChecked);
+    let options = [];
     let answer = null;
-    if (checkedOptions.length > 0) {
-      answer = this.formatZhihuishuCheckedAnswer(type, checkedOptions);
+
+    if (isFillIn) {
+      answer = this.extractFillInAnswer(questionElement);
     } else {
-      answer = this.normalizeZhihuishuFallbackAnswer(type, this.extractAnswer(questionElement), options);
+      options = type === '判断题'
+        ? this.extractZhihuishuJudgeOptions(questionElement)
+        : this.extractZhihuishuOptions(questionElement);
+
+      const checkedOptions = options.filter((o) => o.isChecked);
+      if (checkedOptions.length > 0) {
+        answer = this.formatZhihuishuCheckedAnswer(type, checkedOptions);
+      } else {
+        answer = this.normalizeZhihuishuFallbackAnswer(type, this.extractAnswer(questionElement), options);
+      }
     }
 
     return {
       number: index + 1,
       title,
       options,
+      myAnswer: this.extractMyAnswer(questionElement),
+      correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
       answer,
+      analysis: this.extractAnalysis(questionElement),
+      score: this.extractScore(questionElement),
       type: type || this.inferQuestionType({ title, options, answer }, questionElement)
     };
   }
@@ -1320,6 +1880,136 @@ class QuestionExportParser {
     return textMatches.length;
   }
 
+  extractMyAnswer(element) {
+    // Look for "我的答案" labeled node
+    const myAnswerNode = Array.from(element.querySelectorAll('*')).find((node) => {
+      if (node.children && node.children.length > 6) return false;
+      const text = this.cleanText(this.extractReadableText(node));
+      return /^我的答案[:：]?/.test(text);
+    });
+
+    if (myAnswerNode) {
+      const text = this.cleanText(this.extractReadableText(myAnswerNode))
+        .replace(/^我的答案[:：]?\s*/i, '')
+        .replace(/\s*(正确答案|参考答案|标准答案|答案解析|解析|得分|本题得分).*$/i, '')
+        .trim();
+      if (text) return text;
+
+      const parts = [];
+      let sibling = myAnswerNode.nextElementSibling;
+      while (sibling) {
+        const sibText = this.cleanText(this.extractReadableText(sibling));
+        if (/^(正确答案|参考答案|标准答案|答案解析|解析|得分|本题得分)/.test(sibText)) break;
+        if (sibText) parts.push(sibText);
+        sibling = sibling.nextElementSibling;
+      }
+      if (parts.length > 0) return parts.join(' ');
+    }
+
+    // Fall back to input/textarea values
+    const inputs = Array.from(element.querySelectorAll('input[type="text"], input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea'));
+    const inputValues = inputs.map((input) => this.cleanText(input.value || '')).filter(Boolean);
+    if (inputValues.length > 0) return inputValues.join(' / ');
+
+    return null;
+  }
+
+  extractCorrectAnswer(element) {
+    const labelPatterns = ['正确答案', '参考答案', '标准答案'];
+
+    for (const label of labelPatterns) {
+      const node = Array.from(element.querySelectorAll('*')).find((n) => {
+        if (n.children && n.children.length > 8) return false;
+        const text = this.cleanText(this.extractReadableText(n));
+        return new RegExp(`^${label}[:：]?`).test(text);
+      });
+
+      if (node) {
+        const text = this.cleanText(this.extractReadableText(node))
+          .replace(new RegExp(`^${label}[:：]?\\s*`, 'i'), '')
+          .replace(/\s*(答案解析|解析|得分|本题得分).*$/i, '')
+          .trim();
+        if (text) return text;
+      }
+    }
+
+    // Try dedicated selectors
+    const refSelectors = [
+      '.mark_answer', '.rightAnswerContent', '.newAnswerBx',
+      '.Zy_answer', '.Cy_answer', '.examPaper_answer',
+      '.subject_answer', '.correctAnswer', '.right-answer',
+      '.answer-correct', '.standard-answer', '.reference-answer'
+    ];
+
+    for (const selector of refSelectors) {
+      const node = element.querySelector(selector);
+      if (node) {
+        const text = this.cleanText(this.extractReadableText(node))
+          .replace(/^(正确答案|参考答案|标准答案|答案)[:：]?\s*/i, '')
+          .replace(/\s*(解析|答案解析).*$/i, '')
+          .trim();
+        if (text && !/^我的答案/.test(text)) return text;
+      }
+    }
+
+    // Regex fallback
+    const fullText = this.cleanText(this.extractReadableText(element));
+    const match = fullText.match(/(?:参考答案|正确答案|标准答案)[:：]?\s*(.+?)(?=\s*(?:解析|答案解析|我的答案|收起|$))/i);
+    return match ? this.cleanText(match[1]) : null;
+  }
+
+  extractScore(element) {
+    const fullText = this.cleanText(this.extractReadableText(element));
+    const match = fullText.match(/(?:得分|本题得分)[:：]?\s*(\d+(?:\.\d+)?)\s*分/);
+    if (match) return `${match[1]}分`;
+
+    // Look for fraction patterns like "1.9/2分" or "1.9分"
+    const scoreMatch = fullText.match(/[（(]得分[:：]?\s*(\d+(?:\.\d+)?)\s*分[）)]/);
+    return scoreMatch ? `${scoreMatch[1]}分` : null;
+  }
+
+  extractFillInAnswer(element) {
+    // Use correct answer as reference
+    const correctAnswer = this.extractCorrectAnswer(element);
+    if (correctAnswer) return correctAnswer;
+
+    // Fall back to input/textarea values
+    const inputs = Array.from(element.querySelectorAll('input[type="text"], input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea'));
+    const inputValues = inputs.map((input) => this.cleanText(input.value || '')).filter(Boolean);
+    if (inputValues.length > 0) return inputValues.join(' / ');
+
+    return null;
+  }
+
+  extractAnalysis(element) {
+    const analysisSelectors = [
+      '.analysis',
+      '.jiexitxt',
+      '.jiexi',
+      '.subject_analysis',
+      '.answer-analysis',
+      '.question-analysis',
+      '.DocumentTitle-reference',
+      '[class*="analysis"]',
+      '[class*="jiexi"]'
+    ];
+
+    for (const selector of analysisSelectors) {
+      const node = element.querySelector(selector);
+      if (node) {
+        const text = this.cleanText(this.extractReadableText(node));
+        if (text && !/^(答案|正确答案|参考答案|标准答案)[:：]?\s*[A-H]/.test(text)) {
+          const cleaned = text.replace(/^(解析|答案解析|试题解析)[:：]?\s*/i, '').trim();
+          if (cleaned) return cleaned;
+        }
+      }
+    }
+
+    const fullText = this.cleanText(this.extractReadableText(element));
+    const match = fullText.match(/(?:解析|答案解析|试题解析)[:：]\s*(.+?)(?=\s*(?:参考答案|正确答案|我的答案|收起|AI讲解|$))/i);
+    return match ? this.cleanText(match[1]) : null;
+  }
+
   extractAnswer(element) {
     for (const selector of this.selectors.answerBox) {
       const answerElement = element.querySelector(selector);
@@ -1370,7 +2060,7 @@ class QuestionExportParser {
   }
 
   hasQuestionTypeKeyword(text) {
-    return /(单选题|多选题|判断题|填空题|简答题|主观题|题目|问题|习题|试卷|作业|测验|考试)/.test(text);
+    return /(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释|材料题|阅读题|题目|问题|习题|试卷|作业|测验|考试)/.test(text);
   }
 
   isOptionLikeText(text) {
@@ -1378,7 +2068,7 @@ class QuestionExportParser {
   }
 
   isQuestionTypeOnlyText(text) {
-    return /^\d+\.(单选题|多选题|判断题|填空题|简答题|主观题)(\s*\(\d+分\))?$/i.test(text);
+    return /^\d+\.(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)(\s*\(\d+分\))?$/i.test(text);
   }
 
   isAnswerLikeText(text) {
@@ -1389,7 +2079,7 @@ class QuestionExportParser {
     const normalized = this.cleanText(this.decryptText(text));
     return normalized
       .replace(/^\d+[\.\s、:：)]\s*/, '')
-      .replace(/^(单选题|多选题|判断题|填空题|简答题|主观题)\s*/, '')
+      .replace(/^(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)\s*/, '')
       .trim();
   }
 
@@ -1399,9 +2089,66 @@ class QuestionExportParser {
       .trim();
   }
 
+  extractReadableText(node) {
+    const blockTags = new Set([
+      'DIV', 'P', 'LI', 'UL', 'OL', 'DL', 'DT', 'DD', 'SECTION', 'ARTICLE',
+      'HEADER', 'FOOTER', 'TABLE', 'TR', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4',
+      'H5', 'H6'
+    ]);
+    const skipTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'CANVAS']);
+
+    const read = (current) => {
+      if (!current) {
+        return '';
+      }
+
+      if (current.nodeType === 3) {
+        return current.nodeValue || '';
+      }
+
+      if (current.nodeType !== 1) {
+        return '';
+      }
+
+      const tagName = current.tagName;
+      if (skipTags.has(tagName)) {
+        return '';
+      }
+
+      if (tagName === 'BR') {
+        return '\n';
+      }
+
+      if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+        return current.value || current.getAttribute('value') || current.textContent || '';
+      }
+
+      if (tagName === 'SELECT') {
+        const selected = current.options && current.selectedIndex >= 0
+          ? current.options[current.selectedIndex]
+          : null;
+        return selected ? selected.textContent || selected.value || '' : '';
+      }
+
+      if (tagName === 'IMG') {
+        return current.getAttribute('alt') || current.getAttribute('title') || '';
+      }
+
+      const childText = Array.from(current.childNodes || [])
+        .map((child) => read(child))
+        .filter((text) => text !== '')
+        .join('');
+
+      return blockTags.has(tagName) ? `\n${childText}\n` : childText;
+    };
+
+    return this.cleanText(read(node));
+  }
+
   cleanText(text) {
     return String(text || '')
       .replace(/\u00a0/g, ' ')
+      .replace(/[ \t]*\n+[ \t]*/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -1449,3 +2196,5 @@ class QuestionExportParser {
     return '未找到题目，请确认当前页面是学习通、长江雨课堂、课堂派或智慧树的答题/作业/试卷页面。请打开浏览器控制台（F12）查看详细信息。';
   }
 }
+
+window.QuestionExportParser = QuestionExportParser;
