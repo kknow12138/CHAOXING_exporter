@@ -1,5 +1,14 @@
 # 更新日志
 
+## 2026-06-14（雨课堂习题集导出）
+
+- 新增雨课堂 `studentCards` 习题集页面支持：在 `yuketang.cn/v2/web/studentCards/...` 页面点击「导出」，直接通过 API 拉取全部题目并导出为 HTML 文件。
+- 题目内容从 `ProblemBodys[0].Paragraphs → Lines → Texts → Text` 路径精确提取文字（非截图/缩略图），选项 A/B/C/D 文字同步提取并高亮正确答案。
+- 支持单选题、多选题、填空题、主观题、投票题，题型自动识别。
+- 生成的 HTML 内置「🖨️ 打印 / 导出 PDF」按钮，点击触发浏览器打印对话框，可直接另存为 PDF；打印时按钮自动隐藏，分页不截断题目。
+- 原有雨课堂试卷/考试结果页面的 Word 导出流程不受影响，两种模式自动区分。
+- 无需重新构建（仅改动 `popup/popup.js` 与 `popup/popup.html`）。
+
 ## 2026-06-13（文档与发布）
 
 - 补充 macOS / Linux 安装与配置说明（py_exporter/README）。
