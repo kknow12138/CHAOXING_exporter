@@ -28,6 +28,8 @@ class QuestionExportParser {
           '.Cy_TItle',
           '.TiMuDiv',
           '.e-q-body',
+          '.subject_tab',
+          '.questionInfo',
           '[class*="TiMu"]',
           '[class*="questionLi"]',
           '[class*="Zy_TItle"]',
@@ -65,6 +67,7 @@ class QuestionExportParser {
           '.Cy_answer',
           '.answerCon',
           '.answerContent',
+          '.score_info',
           '.analysis',
           '.jiexitxt',
           '.jiexi',
@@ -512,6 +515,38 @@ class QuestionExportParser {
   }
 
   findQuestions() {
+    // 学习通：优先按 .mark_item 题型块拆题（题型从块头精准读取）
+    if (this.platform === 'chaoxing') {
+      const blockQuestions = this.findChaoxingQuestionsByBlocks();
+      const globalBest = this.findBestContainerSet();
+      const blockLen = blockQuestions ? blockQuestions.length : 0;
+      const globalLen = globalBest ? globalBest.length : 0;
+
+      // 取拆出题目更多的一组（块级与全局通常一致，块级额外携带题型上下文）
+      if (blockLen > 0 && blockLen >= globalLen) {
+        return blockQuestions;
+      }
+      if (globalLen > 0) {
+        return globalBest;
+      }
+
+      const textQuestions = this.findChaoxingQuestionsByText();
+      if (textQuestions.length > 0) {
+        return textQuestions;
+      }
+
+      return this.findQuestionsByInteractiveElements();
+    }
+
+    const best = this.findBestContainerSet();
+    if (best) {
+      return best;
+    }
+
+    return this.findQuestionsByInteractiveElements();
+  }
+
+  findBestContainerSet() {
     const attempts = [];
 
     for (const selector of this.selectors.questionContainer) {
@@ -527,26 +562,92 @@ class QuestionExportParser {
     }
 
     attempts.sort((a, b) => b.score - a.score);
+    return attempts.length > 0 ? attempts[0].elements : null;
+  }
 
-    if (attempts.length > 0) {
-      return attempts[0].elements;
+  // 遍历 .mark_item 题型块，在每块内拆出单题
+  findChaoxingQuestionsByBlocks() {
+    const blocks = Array.from(document.querySelectorAll('.mark_item'));
+    if (blocks.length === 0) {
+      return null;
     }
 
-    if (this.platform === 'chaoxing') {
-      const textQuestions = this.findChaoxingQuestionsByText();
-      if (textQuestions.length > 0) {
-        return textQuestions;
+    const all = [];
+    for (const block of blocks) {
+      this.findChaoxingSubQuestions(block).forEach((element) => all.push(element));
+    }
+
+    return all.length > 0 ? this.normalizeQuestionCandidates(all) : null;
+  }
+
+  // 在单个题型块内，尝试各候选单题容器选择器，选出拆分最合理的一组
+  findChaoxingSubQuestions(block) {
+    const selectors = [
+      '.questionLi',
+      '.TiMu',
+      '.Py_tk',
+      '.TiMuDiv',
+      '.subject_tab',
+      '.questionInfo',
+      '[class*="TiMu"]',
+      '[class*="questionLi"]',
+      'dl'
+    ];
+
+    let best = [];
+    let bestScore = -Infinity;
+
+    for (const selector of selectors) {
+      const roots = Array.from(block.querySelectorAll(selector))
+        .map((element) => this.getChaoxingQuestionRoot(element))
+        .filter((element) => element && block.contains(element));
+      const normalized = this.normalizeQuestionCandidates(roots);
+
+      if (normalized.length === 0) {
+        continue;
+      }
+
+      const score = this.scoreQuestionSet(normalized);
+      if (score > bestScore) {
+        bestScore = score;
+        best = normalized;
       }
     }
 
-    const fallback = this.findQuestionsByInteractiveElements();
-    return fallback;
+    // 兜底：块内未命中任何单题容器时，整块作为一题
+    if (best.length === 0 && this.isQuestionCandidate(block)) {
+      return [block];
+    }
+
+    return best;
+  }
+
+  // 从题目所在的 .mark_item 块头读取权威题型（如「三、填空题」→ 填空题）
+  getChaoxingBlockType(element) {
+    if (!element || !element.closest) {
+      return null;
+    }
+
+    const block = element.closest('.mark_item');
+    if (!block) {
+      return null;
+    }
+
+    const headEl = block.querySelector('.mark_name, .type_tit, .mark_title, h3, h4, strong');
+    let headText = headEl ? this.cleanText(headEl.innerText || headEl.textContent || '') : '';
+
+    if (!headText) {
+      headText = this.cleanText((block.innerText || '').split('\n')[0] || '');
+    }
+
+    const match = headText.match(/(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)/);
+    return match ? match[1] : null;
   }
 
   findChaoxingQuestionsByText() {
     const candidates = Array.from(document.querySelectorAll('div, li, section, article, dd, dl'))
       .filter((element) => {
-        const text = this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+        const text = this.cleanText(this.decryptText(element.innerText || ''));
         if (!/【(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释)】/.test(text)) {
           return false;
         }
@@ -581,7 +682,12 @@ class QuestionExportParser {
       );
     }
 
-    return element.closest('.TiMu, .questionLi, .Py_tk, .TiMuDiv, [class*="TiMu"]') || element;
+    // .subject_tab 和 .questionInfo 自身即为题目根节点，但若嵌套在 .mark_item 中也无妨
+    if (element.matches('.subject_tab, .questionInfo')) {
+      return element;
+    }
+
+    return element.closest('.TiMu, .questionLi, .Py_tk, .TiMuDiv, [class*="TiMu"], .subject_tab, .questionInfo') || element;
   }
 
   normalizeQuestionCandidates(elements) {
@@ -739,18 +845,20 @@ class QuestionExportParser {
   }
 
   parseChaoxingQuestion(questionElement, index) {
+    const blockType = this.getChaoxingBlockType(questionElement);
     const rawTitle = this.extractChaoxingTitle(questionElement);
     const optionGroups = this.extractChaoxingEmbeddedOptionGroups(questionElement, rawTitle);
     const title = optionGroups.length > 0
       ? this.stripChaoxingEmbeddedOptions(rawTitle, optionGroups)
       : rawTitle;
-    const typeHint = this.inferChaoxingQuestionType({ title, options: [], answer: null }, questionElement);
+    // 块头题型为权威来源，缺失时回退到文本推断
+    const typeHint = blockType || this.inferChaoxingQuestionType({ title, options: [], answer: null }, questionElement);
     const hintedWritten = this.isChaoxingWrittenQuestionType(typeHint);
 
     const options = hintedWritten ? [] : this.extractChaoxingOptions(questionElement);
-    const questionType = hintedWritten
+    const questionType = blockType || (hintedWritten
       ? typeHint
-      : this.inferChaoxingQuestionType({ title, options, answer: null }, questionElement);
+      : this.inferChaoxingQuestionType({ title, options, answer: null }, questionElement));
     const isWritten = this.isChaoxingWrittenQuestionType(questionType);
     const answer = isWritten
       ? this.extractChaoxingWrittenAnswer(questionElement)
@@ -779,13 +887,15 @@ class QuestionExportParser {
       return false;
     }
 
-    const plainText = text || this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || ''));
     return element.classList.contains('questionLi') ||
       element.classList.contains('TiMu') ||
       element.classList.contains('Py_tk') ||
       element.classList.contains('TiMuDiv') ||
+      element.classList.contains('subject_tab') ||
+      element.classList.contains('questionInfo') ||
       /^(第?\d+[\.\s、:：)]|[\(\[【]?(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释))/i.test(plainText) ||
-      Boolean(element.querySelector('.Zy_TItle, .Cy_TItle, .qtContent, .Py_answer, .Zy_answer, textarea'));
+      Boolean(element.querySelector('.Zy_TItle, .Cy_TItle, .qtContent, .Py_answer, .Zy_answer, .score_info, textarea'));
   }
 
   extractChaoxingTitle(element) {
@@ -807,7 +917,10 @@ class QuestionExportParser {
     for (const selector of titleSelectors) {
       const titleElement = element.querySelector(selector);
       if (titleElement) {
-        const text = this.cleanChaoxingTitleText(this.extractReadableText(titleElement));
+        // 优先用 innerText：尊重 CSS 可见性，inline <span>/<i> 能正确拼接；
+        // 避免 textContent 把隐藏的填空占位符等内容混入
+        const rawText = titleElement.innerText || this.extractReadableText(titleElement);
+        const text = this.cleanChaoxingTitleText(rawText);
         if (text && !this.isQuestionTypeOnlyText(text)) {
           return text;
         }
@@ -923,7 +1036,9 @@ class QuestionExportParser {
 
   isChaoxingOptionNode(node) {
     const text = this.cleanText(this.decryptText(this.extractReadableText(node)));
-    if (!this.isOptionLikeText(text) || text.length > 260) {
+    // 判断题选项可能是纯"对"/"错"（无 A/B 前缀），需特殊放行
+    const isJudgeOption = /^(对|错|正确|错误)$/.test(text);
+    if (!isJudgeOption && (!this.isOptionLikeText(text) || text.length > 260)) {
       return false;
     }
 
@@ -1015,6 +1130,7 @@ class QuestionExportParser {
       '.Cy_answer',
       '.answerCon',
       '.answerContent',
+      '.score_info',
       '.lookAnswer',
       '.correctAnswer',
       '.analysis',
@@ -1049,7 +1165,7 @@ class QuestionExportParser {
     }
 
     const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
-    const answerMatch = fullText.match(/(?:标准答案|参考答案|正确答案)[:：]?\s*(.+?)(?:\s*(?:解析|答案解析|我的答案|收起解析)|$)/);
+    const answerMatch = fullText.match(/(?:标准答案|参考答案|正确答案)[:：]?\s*(.+?)(?:\s*(?:解析|答案解析|我的答案|收起解析|知识点|\d+\.?\d*\s*分)|$)/);
     return answerMatch ? this.normalizeChaoxingAnswerText(this.cleanChaoxingAnswerText(answerMatch[1]), options) : null;
   }
 
@@ -1122,10 +1238,48 @@ class QuestionExportParser {
     return standardAnswer ? this.normalizeChaoxingAnswerText(standardAnswer, options) : null;
   }
 
+  /**
+   * 通过查找含"我的答案"/"正确答案"文字的节点定位答案区容器。
+   * 比依赖 class 名更健壮：超星各版本 class 可能不同。
+   */
+  findChaoxingAnswerBlock(element) {
+    const allNodes = Array.from(element.querySelectorAll('*'));
+    for (const node of allNodes) {
+      if (!node.innerText || (node.children && node.children.length > 10)) continue;
+      const text = this.cleanText(node.innerText);
+      // 找到一个"标签节点"：文字仅为答案标签（如"我的答案："）
+      if (/^(我的答案|正确答案|参考答案|标准答案)[:：]?$/.test(text)) {
+        // 向上找同时含"我的答案"和"正确答案"的最近祖先
+        let ancestor = node.parentElement;
+        while (ancestor && ancestor !== element) {
+          const ancestorText = this.cleanText(ancestor.innerText || '');
+          if (/(我的答案)/.test(ancestorText) &&
+              /(正确答案|参考答案|标准答案)/.test(ancestorText) &&
+              ancestorText.length < 1200) {
+            return ancestor;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        return node.parentElement || null;
+      }
+    }
+    return null;
+  }
+
   extractChaoxingRawStandardAnswer(element) {
     const fillAnswer = this.extractChaoxingMarkFillAnswer(element, 'standard');
     if (fillAnswer) {
       return fillAnswer;
+    }
+
+    // 先尝试文字定位答案块（不依赖 class 名）
+    const answerBlock = this.findChaoxingAnswerBlock(element);
+    if (answerBlock) {
+      const blockText = this.cleanText(answerBlock.innerText || '');
+      const match = blockText.match(/(?:标准答案|正确答案|参考答案)[:：]?\s*(.+?)(?=\s*(?:解析|答案解析|我的答案|知识点|\d+\.?\d*\s*分)|$)/i);
+      if (match && this.cleanText(match[1])) {
+        return this.cleanChaoxingAnswerText(match[1]);
+      }
     }
 
     const answer = this.extractChaoxingLabeledAnswer(element, /标准答案|正确答案|参考答案/);
@@ -1136,6 +1290,16 @@ class QuestionExportParser {
     const fillAnswer = this.extractChaoxingMarkFillAnswer(element, 'mine');
     if (fillAnswer) {
       return fillAnswer;
+    }
+
+    // 先尝试文字定位答案块（不依赖 class 名）
+    const answerBlock = this.findChaoxingAnswerBlock(element);
+    if (answerBlock) {
+      const blockText = this.cleanText(answerBlock.innerText || '');
+      const match = blockText.match(/我的答案[:：]?\s*(.+?)(?=\s*(?:正确答案|参考答案|标准答案|答案解析|解析|知识点|\d+\.?\d*\s*分)|$)/i);
+      if (match && this.cleanText(match[1])) {
+        return this.cleanChaoxingAnswerText(match[1]);
+      }
     }
 
     const answer = this.extractChaoxingLabeledAnswer(element, /我的答案/);
@@ -1209,7 +1373,7 @@ class QuestionExportParser {
   extractChaoxingLabeledAnswer(element, labelPattern) {
     const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
     const source = labelPattern.source;
-    const match = fullText.match(new RegExp(`(?:${source})[:：]?\\s*(.+?)(?=\\s*(?:标准答案|正确答案|参考答案|我的答案|答案解析|解析|收起解析|AI讲解|本题得分|得分|\\d+(?:\\.\\d+)?\\s*分)|$)`, 'i'));
+    const match = fullText.match(new RegExp(`(?:${source})[:：]?\\s*(.+?)(?=\\s*(?:标准答案|正确答案|参考答案|我的答案|答案解析|解析|收起解析|AI讲解|知识点|本题得分|得分|\\d+\\.?\\d*\\s*分)|$)`, 'i'));
 
     if (match && this.cleanText(match[1])) {
       return this.cleanChaoxingAnswerText(match[1]);
@@ -1455,7 +1619,7 @@ class QuestionExportParser {
       return false;
     }
 
-    const plainText = text || this.cleanText(this.decryptText(element.innerText || element.textContent || ''));
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || ''));
     return /【(单选题|多选题|判断题|填空题|简答题|名词解释|论述题)】/.test(plainText) ||
       /^\d+\s*【/.test(plainText) ||
       Boolean(element.querySelector('.subject_describe, .subject_node, .examPaper_optionList, [class*="option"]'));
@@ -1484,7 +1648,7 @@ class QuestionExportParser {
       clone.querySelectorAll(selector).forEach((node) => node.remove());
     });
 
-    const text = this.cleanZhihuishuTitleText(clone.innerText || clone.textContent || '');
+    const text = this.cleanZhihuishuTitleText(clone.innerText || '');
     return text || this.extractTitle(element);
   }
 
@@ -2182,6 +2346,16 @@ class QuestionExportParser {
   }
 
   extractAnalysis(element) {
+    // 先尝试从答案块的 innerText 中用正则提取解析（不依赖 class）
+    const answerBlock = this.platform === 'chaoxing' ? this.findChaoxingAnswerBlock(element) : null;
+    if (answerBlock) {
+      const blockText = this.cleanText(answerBlock.innerText || '');
+      const match = blockText.match(/(?:解析|答案解析|试题解析)[:：]\s*(.+?)(?=\s*(?:知识点|我的答案|参考答案|正确答案|收起|AI讲解|$))/i);
+      if (match && this.cleanText(match[1])) {
+        return this.cleanText(match[1]);
+      }
+    }
+
     const analysisSelectors = [
       '.analysis',
       '.jiexitxt',
@@ -2206,7 +2380,7 @@ class QuestionExportParser {
     }
 
     const fullText = this.cleanText(this.extractReadableText(element));
-    const match = fullText.match(/(?:解析|答案解析|试题解析)[:：]\s*(.+?)(?=\s*(?:参考答案|正确答案|我的答案|收起|AI讲解|$))/i);
+    const match = fullText.match(/(?:解析|答案解析|试题解析)[:：]\s*(.+?)(?=\s*(?:参考答案|正确答案|我的答案|收起|AI讲解|知识点|$))/i);
     return match ? this.cleanText(match[1]) : null;
   }
 
