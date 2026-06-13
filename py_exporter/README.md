@@ -12,7 +12,7 @@
 
 ## macOS 安装与配置
 
-macOS 没有 exe，直接用 Python 从源码运行（系统通常自带 Python 3）。
+macOS直接用 Python 从源码运行（系统通常自带 Python 3）。
 
 **1. 确认 Python 3**（macOS 自带；终端 `应用程序 → 实用工具 → 终端`）
 
