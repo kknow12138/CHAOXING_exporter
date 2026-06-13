@@ -2,6 +2,16 @@
 
 一个浏览器扩展，可以把学习通（超星）、长江雨课堂、课堂派和智慧树页面中的题目导出为 Word 文档，方便离线复习。
 
+> 另提供 **Python 命令行版**（`py_exporter/`），通过学习通接口登录后批量抓取已完成作业并导出为 Word / JSON / Markdown，详见 [py_exporter/README.md](py_exporter/README.md)。
+
+## 使用声明
+
+- 本项目仅供**个人学习与复习归档**使用，请勿用于考试作弊或任何违反学校、平台规定的行为。
+- 仅用于导出**本人账号**下的资料；请勿抓取、传播他人或受版权保护的内容。
+- 浏览器扩展在本地处理数据，不上传任何信息；Python 版的账号密码仅经 AES 加密后直接发送给学习通，不在本地落盘。
+- 两个版本均**只读取与导出，不包含任何自动作答或提交作业的功能**。
+- 因使用本工具产生的任何后果由使用者自行承担。
+
 ## 功能
 
 - 一键抓取当前页面的所有题目
@@ -102,9 +112,22 @@ npm run dev
     └── service-worker.js # 后台服务源码
 ```
 
+## Python 命令行版
+
+`py_exporter/` 是与扩展等价的纯 Python 工具，适合批量导出。
+
+```bash
+cd py_exporter
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python run.py
+```
+
+交互流程：选登录方式（二维码 / 账号密码）→ 选课程 → 选作业（支持多选/全选）→ 选导出格式（Word / JSON / Markdown）。文件写入 `py_exporter/output/`。详见 [py_exporter/README.md](py_exporter/README.md)。
+
 ## 注意事项
 
-- 仅供个人学习使用，请勿用于考试作弊
+- 仅供个人学习使用，请勿用于考试作弊（详见上文「使用声明」）
 - 扩展在本地处理数据，不会上传任何信息
 - 页面结构可能更新，如遇问题请提 issue
 
