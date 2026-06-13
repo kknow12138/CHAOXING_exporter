@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2026-06-13（文档与发布）
+
+- 补充 macOS / Linux 安装与配置说明（py_exporter/README）。
+- 新增 GitHub Actions 工作流：推送 `v*` 标签自动打包 Windows exe 并发布到 Releases。
+- 首页 README 更新日志同步新增 v1.3.0（Python 命令行版）。
+
 ## 2026-06-13（二维码登录优化）
 
 - Python 版二维码登录改为：生成 PNG 图片并自动用系统默认看图工具打开，同时打印可复制的登录链接，解决控制台字符二维码扫不动的问题。
