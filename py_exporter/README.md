@@ -10,24 +10,63 @@
 
 > exe 由 GitHub Actions 在 Windows 上用 PyInstaller 自动打包（见 `.github/workflows/build-windows.yml`）。维护者推送 `v*` 标签即触发构建并发布。
 
-## 从源码安装运行
+## macOS 安装与配置
+
+macOS 没有 exe，直接用 Python 从源码运行（系统通常自带 Python 3）。
+
+**1. 确认 Python 3**（macOS 自带；终端 `应用程序 → 实用工具 → 终端`）
 
 ```bash
-cd py_exporter
+python3 --version
+```
+
+显示 3.8 以上即可。若提示找不到命令，用 Homebrew 安装：
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  # 没装过 Homebrew 才需要
+brew install python3
+```
+
+**2. 获取代码**（二选一）
+
+```bash
+# 方式 A：git 克隆
+git clone https://github.com/kknow12138/CHAOXING_exporter.git
+cd CHAOXING_exporter/py_exporter
+
+# 方式 B：在 GitHub 点 Code → Download ZIP，解压后进入 py_exporter 目录
+cd ~/Downloads/CHAOXING_exporter/py_exporter
+```
+
+**3. 创建虚拟环境并安装依赖**（只需做一次）
+
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-## 运行
+**4. 运行**
 
 ```bash
 .venv/bin/python run.py
 ```
 
-交互流程：
+> 提示：每次运行都用 `.venv/bin/python run.py`（无需手动 `activate`）。如果想用 `python run.py` 简写，可先执行 `source .venv/bin/activate` 激活环境。
+
+### macOS 使用须知
+
+- 选择二维码登录时，程序会把二维码存为 `output/login_qr.png` 并**自动用「预览」打开**，同时在终端打印登录链接；用学习通 App 扫描图片即可。
+- 首次打开图片若系统询问，允许「预览」打开即可；图片扫不动时，可复制终端里的登录链接到手机浏览器打开。
+- 导出文件统一写入 `output/` 目录（在 `py_exporter/` 下）。
+
+## Linux 安装
+
+步骤与 macOS 相同（`python3 -m venv .venv` → `pip install -r requirements.txt` → `.venv/bin/python run.py`）。二维码图片会调用 `xdg-open` 打开。
+
+## 交互流程
 
 1. 选择登录方式（二维码 / 账号密码）
-   - 二维码：终端会打印二维码，用学习通 App 扫描确认
+   - 二维码：自动弹出二维码图片并打印登录链接，用学习通 App 扫描确认
    - 账号密码：手机号 + 密码（密码经 AES 加密后发送，不落盘）
 2. 选择课程
 3. 选择作业（支持逗号多选，或 `0` 全部导出）
