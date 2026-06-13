@@ -1,6 +1,8 @@
 """交互式命令行：登录 → 选课程 → 选作业 → 选导出格式 → 写文件。"""
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import List
@@ -20,8 +22,20 @@ def _ask(prompt: str) -> str:
         sys.exit(0)
 
 
-def _print_qr_terminal(url: str) -> None:
-    """在终端打印二维码。失败则退回打印链接。"""
+def _open_file(path: str) -> None:
+    """用系统默认程序打开文件。"""
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
+    except Exception:
+        pass
+
+
+def _ascii_qr(url: str) -> None:
     try:
         import qrcode
 
@@ -30,7 +44,25 @@ def _print_qr_terminal(url: str) -> None:
         qr.make(fit=True)
         qr.print_ascii(invert=True)
     except Exception:
-        print(f"请用学习通 App 扫描以下链接对应的二维码：\n{url}")
+        pass
+
+
+def show_qr(url: str) -> None:
+    """生成二维码 PNG 并自动打开，同时打印登录链接（扫不了码时可手动打开/复制）。"""
+    print("\n请用【学习通 App】扫描二维码登录（二维码限时，过期请重开）：")
+    print(f"\n登录链接（手机扫不了码时，可复制到手机浏览器打开）：\n{url}\n")
+    try:
+        import qrcode
+
+        img = qrcode.make(url)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        qr_path = OUTPUT_DIR / "login_qr.png"
+        img.save(str(qr_path))
+        print(f"二维码图片已保存并尝试自动打开：{qr_path.resolve()}")
+        _open_file(str(qr_path))
+    except Exception as e:
+        print(f"(生成二维码图片失败：{e}；改用终端字符二维码)")
+        _ascii_qr(url)
 
 
 def do_login(client: ChaoxingClient) -> None:
@@ -43,9 +75,8 @@ def do_login(client: ChaoxingClient) -> None:
         print("✓ 账号密码登录成功")
     else:
         url = client.qr_prepare()
-        print("\n请用学习通 App 扫描下面的二维码（限时）：\n")
-        _print_qr_terminal(url)
-        print("\n等待扫码确认中...")
+        show_qr(url)
+        print("等待扫码确认中...")
         client.login_qr()
         print("✓ 二维码登录成功")
 

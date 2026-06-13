@@ -4,3 +4,4 @@ lxml>=4.9
 pycryptodome>=3.17
 python-docx>=1.1
 qrcode>=7.4
+pillow>=10.0

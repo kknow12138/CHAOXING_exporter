@@ -34,6 +34,9 @@ jobs:
           --collect-all docx
           --collect-submodules lxml
           --hidden-import lxml._elementpath
+          --collect-submodules qrcode
+          --hidden-import qrcode.image.pil
+          --collect-all PIL
           run.py
 
       - name: Upload build artifact
