@@ -4,7 +4,13 @@
 
 > 仅做读取与导出，**不包含任何自动作答或提交作业的功能**。请在遵守学校与平台规定的前提下，仅用于导出本人账号下的资料。
 
-## 安装
+## Windows 可执行版（免安装 Python）
+
+到本仓库的 [Releases](../../releases) 页面下载 `chaoxing-exporter.exe`，双击运行即可，无需安装 Python 和依赖。
+
+> exe 由 GitHub Actions 在 Windows 上用 PyInstaller 自动打包（见 `.github/workflows/build-windows.yml`）。维护者推送 `v*` 标签即触发构建并发布。
+
+## 从源码安装运行
 
 ```bash
 cd py_exporter
