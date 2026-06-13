@@ -151,6 +151,35 @@ export default class DocxGenerator {
       })
     );
 
+    if (Array.isArray(q.optionGroups) && q.optionGroups.length > 0) {
+      paragraphs.push(this._sectionHeader('【选项】'));
+      q.optionGroups.forEach(group => {
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${group.number || ''} 选项`,
+                bold: true,
+                color: '333333'
+              })
+            ],
+            spacing: { before: 80, after: 50 },
+            indent: { left: 200 }
+          })
+        );
+
+        (group.options || []).forEach(opt => {
+          paragraphs.push(
+            new Paragraph({
+              text: `${opt.label}. ${opt.text}`,
+              spacing: { after: 40 },
+              indent: { left: 500 }
+            })
+          );
+        });
+      });
+    }
+
     // ── 【我的答案】（如果有）
     if (q.myAnswer) {
       const scoreTag = q.score ? `（得分：${q.score}）` : '';

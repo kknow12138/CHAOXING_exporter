@@ -739,7 +739,11 @@ class QuestionExportParser {
   }
 
   parseChaoxingQuestion(questionElement, index) {
-    const title = this.extractChaoxingTitle(questionElement);
+    const rawTitle = this.extractChaoxingTitle(questionElement);
+    const optionGroups = this.extractChaoxingEmbeddedOptionGroups(questionElement, rawTitle);
+    const title = optionGroups.length > 0
+      ? this.stripChaoxingEmbeddedOptions(rawTitle, optionGroups)
+      : rawTitle;
     const typeHint = this.inferChaoxingQuestionType({ title, options: [], answer: null }, questionElement);
     const hintedWritten = this.isChaoxingWrittenQuestionType(typeHint);
 
@@ -756,6 +760,7 @@ class QuestionExportParser {
       number: index + 1,
       title,
       options,
+      optionGroups: hintedWritten ? optionGroups : [],
       myAnswer: isWritten
         ? (this.extractChaoxingRawMyAnswer(questionElement) || this.extractMyAnswer(questionElement))
         : (this.extractChaoxingMyAnswer(questionElement, options) || this.extractMyAnswer(questionElement)),
@@ -836,6 +841,84 @@ class QuestionExportParser {
     }
 
     return this.findChaoxingOptionsByText(element);
+  }
+
+  extractChaoxingEmbeddedOptionGroups(element, titleText = null) {
+    const sourceText = this.cleanText(titleText || this.extractChaoxingTitle(element));
+    if (!sourceText) {
+      return [];
+    }
+
+    const subQuestionMatches = Array.from(sourceText.matchAll(/(?:^|\s)([（(]\d+[）)])\s*/g));
+    if (subQuestionMatches.length === 0) {
+      return [];
+    }
+
+    const groups = [];
+    for (let index = 0; index < subQuestionMatches.length; index += 1) {
+      const match = subQuestionMatches[index];
+      const nextMatch = subQuestionMatches[index + 1];
+      const leadingSpaceLength = (match[0].match(/^\s*/) || [''])[0].length;
+      const start = match.index + leadingSpaceLength;
+      const end = nextMatch ? nextMatch.index : sourceText.length;
+      const segment = sourceText.slice(start, end).trim();
+      const options = this.extractChaoxingOptionsFromSegment(segment);
+
+      if (options.length < 2) {
+        continue;
+      }
+
+      const firstOptionIndex = options[0].index;
+      const stem = this.cleanText(segment.slice(0, firstOptionIndex));
+      groups.push({
+        number: match[1],
+        stem,
+        options: options.map(({ index: _index, ...option }) => option),
+        start,
+        end
+      });
+    }
+
+    return groups;
+  }
+
+  extractChaoxingOptionsFromSegment(segment) {
+    const matches = Array.from(segment.matchAll(/(?:^|\s)([A-H])[\.\s、:：\)]\s*/gi));
+    return matches.map((match, index) => {
+      const labelIndex = match.index + match[0].search(/[A-H]/i);
+      const textStart = match.index + match[0].length;
+      const nextMatch = matches[index + 1];
+      const textEnd = nextMatch ? nextMatch.index : segment.length;
+      const text = this.cleanText(segment.slice(textStart, textEnd));
+
+      return {
+        label: match[1].toUpperCase(),
+        text,
+        isChecked: false,
+        index: labelIndex
+      };
+    }).filter((option) => {
+      return option.text &&
+        option.text.length <= 500 &&
+        !/^(正确答案|参考答案|标准答案|答案|解析|我的答案)/.test(option.text);
+    });
+  }
+
+  stripChaoxingEmbeddedOptions(title, optionGroups) {
+    if (!title || optionGroups.length === 0) {
+      return title;
+    }
+
+    let result = '';
+    let cursor = 0;
+    for (const group of optionGroups) {
+      result += title.slice(cursor, group.start);
+      result += group.stem;
+      cursor = group.end;
+    }
+    result += title.slice(cursor);
+
+    return this.cleanChaoxingTitleText(result);
   }
 
   isChaoxingOptionNode(node) {
@@ -996,6 +1079,11 @@ class QuestionExportParser {
   }
 
   getChaoxingAnswerResultStatus(element) {
+    const fillStatus = this.getChaoxingFillAnswerStatus(element);
+    if (fillStatus !== 'unknown') {
+      return fillStatus;
+    }
+
     const fullText = this.cleanText(this.decryptText(this.extractReadableText(element)));
 
     if (/(^|\s)0(?:\.0+)?\s*分/.test(fullText)) {
@@ -1035,13 +1123,87 @@ class QuestionExportParser {
   }
 
   extractChaoxingRawStandardAnswer(element) {
+    const fillAnswer = this.extractChaoxingMarkFillAnswer(element, 'standard');
+    if (fillAnswer) {
+      return fillAnswer;
+    }
+
     const answer = this.extractChaoxingLabeledAnswer(element, /标准答案|正确答案|参考答案/);
     return answer ? this.cleanChaoxingAnswerText(answer) : null;
   }
 
   extractChaoxingRawMyAnswer(element) {
+    const fillAnswer = this.extractChaoxingMarkFillAnswer(element, 'mine');
+    if (fillAnswer) {
+      return fillAnswer;
+    }
+
     const answer = this.extractChaoxingLabeledAnswer(element, /我的答案/);
     return answer ? this.cleanChaoxingAnswerText(answer) : null;
+  }
+
+  extractChaoxingMarkFillAnswer(element, kind) {
+    const answerArea = element.querySelector('.mark_answer') || element;
+    const selectors = kind === 'standard'
+      ? ['dl.mark_fill.colorGreen', 'dl.colorGreen']
+      : ['dl.mark_fill.colorDeep', 'dl[id^="qb"].mark_fill'];
+
+    for (const selector of selectors) {
+      const answerList = Array.from(answerArea.querySelectorAll(selector));
+
+      for (const list of answerList) {
+        const labelText = this.cleanText(this.extractReadableText(list.querySelector('dt')));
+
+        if (kind === 'standard' && !/(正确答案|参考答案|标准答案)/.test(labelText)) {
+          continue;
+        }
+
+        if (kind === 'mine' && !/(我的答案|作答答案)/.test(labelText)) {
+          continue;
+        }
+
+        const parts = Array.from(list.children)
+          .filter((child) => child.tagName && child.tagName.toLowerCase() === 'dd')
+          .map((child) => this.cleanChaoxingAnswerText(this.extractReadableText(child)))
+          .filter(Boolean);
+
+        if (parts.length > 0) {
+          return parts.join(' ');
+        }
+      }
+    }
+
+    return null;
+  }
+
+  getChaoxingFillAnswerStatus(element) {
+    const answerArea = element.querySelector('.mark_answer') || element;
+    const myFill = answerArea.querySelector('dl.mark_fill.colorDeep, dl[id^="qb"].mark_fill');
+    if (!myFill) {
+      return 'unknown';
+    }
+
+    if (myFill.querySelector('.marking_cuo, .marking_ban, .marking_error, .marking_wrong')) {
+      return 'incorrect';
+    }
+
+    const answerItems = Array.from(myFill.children)
+      .filter((child) => child.tagName && child.tagName.toLowerCase() === 'dd');
+
+    if (answerItems.length > 0 && answerItems.every((item) => item.querySelector('.marking_dui'))) {
+      return 'correct';
+    }
+
+    const scoreText = this.cleanText(this.extractReadableText(myFill.querySelector('.totalScore')));
+    if (/^0(?:\.0+)?\s*分?$/.test(scoreText)) {
+      return 'incorrect';
+    }
+
+    if (/^[1-9]\d*(?:\.\d+)?\s*分?$/.test(scoreText)) {
+      return 'correct';
+    }
+
+    return 'unknown';
   }
 
   extractChaoxingLabeledAnswer(element, labelPattern) {
