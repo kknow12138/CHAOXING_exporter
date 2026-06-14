@@ -1,0 +1,3 @@
+fonttools>=4.60
+pillow>=10.0
+ddddocr>=1.5
