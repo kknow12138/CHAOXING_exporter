@@ -149,7 +149,7 @@ python3 -m venv .venv
 
 ## 更新日志
 
-## 2026-06-14（雨课堂习题集导出）
+### v1.4.0 · 2026-06-14（雨课堂习题集导出）
 
 - 新增雨课堂 studentCards 习题集页面支持...
 - 题目内容从 ProblemBodys[0].Paragraphs → Lines → Texts → Text 路径精确提取...
