@@ -94,6 +94,14 @@ class QuestionExportParser {
         questionContainer: [
           '.subject-item',
           '.result_item',
+          '.subject-detail',
+          '.subject-content',
+          '.exercise-subject',
+          '.exercise-content',
+          '.question-main',
+          '.question-content',
+          '.problem-detail',
+          '.problem-content',
           '[data-question-id]',
           '[data-problem-id]',
           '.a4-paper-problem',
@@ -111,6 +119,20 @@ class QuestionExportParser {
           '.item-body h4',
           '.item-body p',
           '.item-type',
+          '.subject-title',
+          '.subject-stem',
+          '.exercise-title',
+          '.question-stem',
+          '.question-content',
+          '.problem-stem',
+          '.problem-content',
+          '[class*="subject-title"]',
+          '[class*="subjectTitle"]',
+          '[class*="subject-stem"]',
+          '[class*="question-stem"]',
+          '[class*="questionStem"]',
+          '[class*="problem-stem"]',
+          '[class*="problemStem"]',
           '[class*="ProblemTitle"]',
           '[class*="problem-title"]',
           '[class*="question-title"]',
@@ -143,8 +165,20 @@ class QuestionExportParser {
           '.item-footer',
           '.item-footer--header',
           '.grade',
+          '.answer',
+          '.correct-answer',
+          '.right-answer',
+          '.standard-answer',
+          '.reference-answer',
+          '.answer-analysis',
+          '.question-analysis',
+          '.analysis',
           '[class*="RightAnswer"]',
           '[class*="right-answer"]',
+          '[class*="correct-answer"]',
+          '[class*="correctAnswer"]',
+          '[class*="standard-answer"]',
+          '[class*="reference-answer"]',
           '[class*="answerAndAnalysis"]',
           '[class*="answer-content"]',
           '[class*="answer__wrap"]',
@@ -732,6 +766,10 @@ class QuestionExportParser {
       score += 5;
     }
 
+    if (this.platform === 'yuketang' && this.isYuketangQuestionElement(element, plainText)) {
+      score += 5;
+    }
+
     if (this.platform === 'zhihuishu' && this.isZhihuishuQuestionElement(element, plainText)) {
       score += 5;
     }
@@ -867,6 +905,7 @@ class QuestionExportParser {
     const question = {
       number: index + 1,
       title,
+      titleImages: this.extractChaoxingTitleImages(questionElement),
       options,
       optionGroups: hintedWritten ? optionGroups : [],
       myAnswer: isWritten
@@ -874,6 +913,7 @@ class QuestionExportParser {
         : (this.extractChaoxingMyAnswer(questionElement, options) || this.extractMyAnswer(questionElement)),
       correctAnswer: isWritten ? (this.extractChaoxingRawStandardAnswer(questionElement) || this.extractCorrectAnswer(questionElement)) : null,
       answer,
+      answerImages: this.extractChaoxingAnswerImages(questionElement),
       analysis: this.extractAnalysis(questionElement),
       score: this.extractScore(questionElement),
       type: questionType
@@ -898,7 +938,60 @@ class QuestionExportParser {
       Boolean(element.querySelector('.Zy_TItle, .Cy_TItle, .qtContent, .Py_answer, .Zy_answer, .score_info, textarea'));
   }
 
+  isYuketangQuestionElement(element, text = null) {
+    if (!element) {
+      return false;
+    }
+
+    const plainText = text || this.cleanText(this.decryptText(element.innerText || ''));
+    return element.dataset.questionId ||
+      element.dataset.problemId ||
+      /^(第?\d+[\.\s、:：)]|[\(\[【]?(单选题|多选题|判断题|填空题|简答题|主观题|问答题|论述题|名词解释))/i.test(plainText) ||
+      /(正确答案|参考答案|标准答案|我的答案|答案解析|解析)/.test(plainText) ||
+      Boolean(element.querySelector([
+        '.subject-title',
+        '.subject-stem',
+        '.question-stem',
+        '.problem-stem',
+        '.correct-answer',
+        '.right-answer',
+        '[class*="correctAnswer"]',
+        '[class*="right-answer"]',
+        '[class*="answerAndAnalysis"]',
+        '[data-question-id]',
+        '[data-problem-id]',
+        'input[type="radio"]',
+        'input[type="checkbox"]',
+        '[role="radio"]',
+        '[role="checkbox"]'
+      ].join(', ')));
+  }
+
   extractChaoxingTitle(element) {
+    const titleElement = this.findChaoxingTitleElement(element);
+    if (titleElement) {
+      // 优先用 innerText：尊重 CSS 可见性，inline <span>/<i> 能正确拼接；
+      // 避免 textContent 把隐藏的填空占位符等内容混入
+      const rawText = titleElement.innerText || this.extractReadableText(titleElement);
+      const text = this.cleanChaoxingTitleText(rawText);
+      if (text && !this.isQuestionTypeOnlyText(text)) {
+        return text;
+      }
+
+      if (this.extractImagesFromNode(titleElement).length > 0) {
+        return '图片题目';
+      }
+    }
+
+    const fallbackText = this.cleanChaoxingTitleText(this.extractTitleFromText(element));
+    if (fallbackText) {
+      return fallbackText;
+    }
+
+    return this.extractImagesFromNode(element).length > 0 ? '图片题目' : '未找到题目';
+  }
+
+  findChaoxingTitleElement(element) {
     const titleSelectors = [
       '.qtContent',
       '.Zy_TItle .clearfix',
@@ -917,17 +1010,38 @@ class QuestionExportParser {
     for (const selector of titleSelectors) {
       const titleElement = element.querySelector(selector);
       if (titleElement) {
-        // 优先用 innerText：尊重 CSS 可见性，inline <span>/<i> 能正确拼接；
-        // 避免 textContent 把隐藏的填空占位符等内容混入
-        const rawText = titleElement.innerText || this.extractReadableText(titleElement);
-        const text = this.cleanChaoxingTitleText(rawText);
-        if (text && !this.isQuestionTypeOnlyText(text)) {
-          return text;
-        }
+        return titleElement;
       }
     }
 
-    return this.cleanChaoxingTitleText(this.extractTitleFromText(element)) || '未找到题目';
+    return null;
+  }
+
+  extractChaoxingTitleImages(element) {
+    const titleElement = this.findChaoxingTitleElement(element);
+    if (titleElement) {
+      return this.extractImagesFromNode(titleElement);
+    }
+
+    const clone = element.cloneNode(true);
+    [
+      ...this.selectors.options,
+      ...this.selectors.answerBox,
+      '.mark_answer',
+      '.rightAnswerContent',
+      '.newAnswerBx',
+      '.answerBx',
+      '.Py_answer',
+      '.Zy_answer',
+      '.Cy_answer',
+      '.analysis',
+      '.jiexitxt',
+      '.jiexi'
+    ].forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((node) => node.remove());
+    });
+
+    return this.extractImagesFromNode(clone);
   }
 
   extractChaoxingOptions(element) {
@@ -1036,6 +1150,15 @@ class QuestionExportParser {
 
   isChaoxingOptionNode(node) {
     const text = this.cleanText(this.decryptText(this.extractReadableText(node)));
+    const hasImage = this.extractImagesFromNode(node).length > 0;
+    if (hasImage && (
+      this.isOptionLikeText(text) ||
+      node.querySelector('input, [role="radio"], [role="checkbox"]') ||
+      node.matches('li, label, .clearfix, .optionLi, .option-item, [class*="option"]')
+    )) {
+      return true;
+    }
+
     // 判断题选项可能是纯"对"/"错"（无 A/B 前缀），需特殊放行
     const isJudgeOption = /^(对|错|正确|错误)$/.test(text);
     if (!isJudgeOption && (!this.isOptionLikeText(text) || text.length > 260)) {
@@ -1236,6 +1359,37 @@ class QuestionExportParser {
   extractChaoxingStandardAnswer(element, options = []) {
     const standardAnswer = this.extractChaoxingRawStandardAnswer(element);
     return standardAnswer ? this.normalizeChaoxingAnswerText(standardAnswer, options) : null;
+  }
+
+  extractChaoxingAnswerImages(element) {
+    const answerSelectors = [
+      '.mark_answer',
+      '.rightAnswerContent',
+      '.newAnswerBx',
+      '.answerBx',
+      '.Py_answer',
+      '.Zy_answer',
+      '.Cy_answer',
+      '.answerCon',
+      '.answerContent',
+      '.score_info',
+      '.lookAnswer',
+      '.correctAnswer'
+    ];
+    const nodes = [];
+    const answerBlock = this.findChaoxingAnswerBlock(element);
+    if (answerBlock) {
+      nodes.push(answerBlock);
+    }
+
+    answerSelectors.forEach((selector) => {
+      const node = element.querySelector(selector);
+      if (node) {
+        nodes.push(node);
+      }
+    });
+
+    return this.dedupeImages(nodes.flatMap((node) => this.extractImagesFromNode(node)));
   }
 
   /**
@@ -2162,16 +2316,21 @@ class QuestionExportParser {
     optionElements.forEach((optionElement, index) => {
       const rawText = this.cleanText(this.decryptText(optionElement.innerText || optionElement.textContent || ''));
       const parsed = this.parseOptionText(rawText);
-      const dedupeKey = `${parsed.label || index}-${parsed.text}`;
+      const images = this.extractImagesFromNode(optionElement);
+      const text = images.length > 0 && parsed.label && parsed.text === parsed.label
+        ? '图片选项'
+        : parsed.text;
+      const dedupeKey = `${parsed.label || index}-${text}-${images.map((image) => image.src).join('|')}`;
 
-      if (!parsed.text || seen.has(dedupeKey)) {
+      if ((!text && images.length === 0) || seen.has(dedupeKey)) {
         return;
       }
 
       seen.add(dedupeKey);
       options.push({
         label: parsed.label || String.fromCharCode(65 + index),
-        text: parsed.text,
+        text: text || '图片选项',
+        images,
         isChecked: this.isOptionChecked(optionElement)
       });
     });
@@ -2477,7 +2636,8 @@ class QuestionExportParser {
       }
 
       if (current.nodeType === 3) {
-        return current.nodeValue || '';
+        // 在文本节点层面进行字体解密，确保所有提取的文本都经过解密
+        return this.decryptText(current.nodeValue || '');
       }
 
       if (current.nodeType !== 1) {
@@ -2494,18 +2654,19 @@ class QuestionExportParser {
       }
 
       if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
-        return current.value || current.getAttribute('value') || current.textContent || '';
+        return this.decryptText(current.value || current.getAttribute('value') || current.textContent || '');
       }
 
       if (tagName === 'SELECT') {
         const selected = current.options && current.selectedIndex >= 0
           ? current.options[current.selectedIndex]
           : null;
-        return selected ? selected.textContent || selected.value || '' : '';
+        return this.decryptText(selected ? selected.textContent || selected.value || '' : '');
       }
 
       if (tagName === 'IMG') {
-        return current.getAttribute('alt') || current.getAttribute('title') || '';
+        const altText = current.getAttribute('alt') || current.getAttribute('title') || '';
+        return this.decryptText(altText || '[图片]');
       }
 
       const childText = Array.from(current.childNodes || [])
@@ -2533,6 +2694,89 @@ class QuestionExportParser {
     }
 
     return text;
+  }
+
+  extractImagesFromNode(node) {
+    if (!node || !node.querySelectorAll) {
+      return [];
+    }
+
+    const images = Array.from(node.querySelectorAll('img'))
+      .map((image) => {
+        const rawSrc = image.currentSrc ||
+          image.getAttribute('src') ||
+          image.getAttribute('data-src') ||
+          image.getAttribute('data-original') ||
+          image.getAttribute('_src') ||
+          image.getAttribute('file') ||
+          '';
+        const src = this.resolveImageSrc(rawSrc);
+        if (!src || this.isNoiseImage(image, src)) {
+          return null;
+        }
+
+        return {
+          src,
+          alt: this.cleanText(image.getAttribute('alt') || image.getAttribute('title') || ''),
+          width: this.getImageDimension(image, 'width'),
+          height: this.getImageDimension(image, 'height')
+        };
+      })
+      .filter(Boolean);
+
+    return this.dedupeImages(images);
+  }
+
+  resolveImageSrc(src) {
+    const normalized = String(src || '').trim();
+    if (!normalized || normalized.startsWith('blob:')) {
+      return '';
+    }
+
+    if (normalized.startsWith('data:image/')) {
+      return normalized;
+    }
+
+    try {
+      return new URL(normalized, window.location.href).href;
+    } catch (error) {
+      return '';
+    }
+  }
+
+  isNoiseImage(image, src) {
+    const classText = this.collectClassText(image).toLowerCase();
+    if (/(icon|avatar|face|emoji|logo|loading|blank|spacer|sprite)/i.test(classText)) {
+      return true;
+    }
+
+    const width = this.getImageDimension(image, 'width');
+    const height = this.getImageDimension(image, 'height');
+    if (width && height && width <= 24 && height <= 24) {
+      return true;
+    }
+
+    return /(?:icon|avatar|face|emoji|logo|loading|blank|spacer|sprite)\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(src);
+  }
+
+  getImageDimension(image, name) {
+    const attr = Number(image.getAttribute(name));
+    const natural = Number(image[`natural${name[0].toUpperCase()}${name.slice(1)}`]);
+    const rendered = Number(image[name]);
+    const value = attr || natural || rendered || 0;
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  dedupeImages(images) {
+    const seen = new Set();
+    return (images || []).filter((image) => {
+      if (!image || !image.src || seen.has(image.src)) {
+        return false;
+      }
+
+      seen.add(image.src);
+      return true;
+    });
   }
 
   debugPageStructure() {

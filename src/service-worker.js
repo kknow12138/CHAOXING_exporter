@@ -10,7 +10,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         // 创建 DocxGenerator 实例
         const generator = new DocxGenerator();
-        const doc = generator.generate(data);
+        const doc = await generator.generate(data);
 
         // 生成 Blob
         const blob = await generator.toBlob(doc);

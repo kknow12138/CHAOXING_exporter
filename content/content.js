@@ -8,11 +8,12 @@ async function waitForFontDecryptor() {
       }
     }, 100);
 
-    // 超时保护（5秒）
+    // 超时保护（15秒）—— 字形哈希动态表需下载当前页字体（最长 8s）+ 解析 + 逐字形
+    // MD5，必须给足时间，否则 parser 会在动态表就绪前抢跑、用静态表导出乱码。
     setTimeout(() => {
       clearInterval(check);
       resolve();
-    }, 5000);
+    }, 15000);
   });
 }
 

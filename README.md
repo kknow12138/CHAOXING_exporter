@@ -18,6 +18,7 @@
 - 支持选择题、判断题、填空题、简答题等各种题型
 - 导出为 Word 文档（.docx 格式）
 - 支持学习通（超星）、长江雨课堂、课堂派、智慧树（知到）
+- 支持长江雨课堂 AI 学习空间作业标签中的测试题逐题抓取
 - 兼容 Edge 和 Chrome 浏览器
 
 ## 快速开始（推荐）
@@ -69,7 +70,7 @@
 
 ## 使用
 
-**第一步：** 登录学习通、长江雨课堂或课堂派，打开考试、作业、练习或试卷页面。点击浏览器工具栏的扩展图标，弹出「题目导出助手」面板。根据当前页面选择对应平台，点击「**导出**」按钮。
+**第一步：** 登录学习通、长江雨课堂或课堂派，打开考试、作业、练习或试卷页面。长江雨课堂 AI 学习空间可停留在作业标签的测试题页面，扩展会自动进入题目 iframe 逐题抓取。点击浏览器工具栏的扩展图标，弹出「题目导出助手」面板。根据当前页面选择对应平台，点击「**导出**」按钮。
 
 ![使用步骤1：选择平台并导出](assets/use-step1.png)
 
@@ -90,8 +91,26 @@ npm install
 # 构建
 npm run build
 
+# 修改后回归测试
+npm test
+
 # 开发模式（自动监听文件变化）
 npm run dev
+```
+
+每次修改完成后，还需要按 [TESTING.md](TESTING.md) 到指定的真实学习通页面执行抓取验证，并在反馈中说明题目数量、图片题/图片答案是否成功导出。
+
+### 雨课堂加密字体映射
+
+长江雨课堂部分题目会使用 `.xuetangx-com-encrypted-font` 和自定义 TTF 字体混淆 DOM 文本。扩展会读取 `lib/yuketang-font-map.json` 对这些字符做码点替换。
+
+如果页面更换了字体文件，重新生成映射：
+
+```bash
+python3 -m pip install -r scripts/requirements-yuketang-font.txt
+python3 scripts/generate_yuketang_font_map.py \
+  --font-url https://fe-static-yuketang.yuketang.cn/fe_font/product/exam_font_239fdcc493de4ef5a4d14835f3a0243c.ttf \
+  --output lib/yuketang-font-map.json
 ```
 
 ## 项目结构

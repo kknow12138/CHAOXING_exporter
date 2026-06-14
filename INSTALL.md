@@ -50,7 +50,7 @@
    - 访问 https://www.favicon-generator.org/ 生成新图标
    - 替换 `assets/icon16.png`, `assets/icon48.png`, `assets/icon128.png`
 
-2. **字体解密**：当前 `lib/typr.js` 是占位符。如果学习通页面使用了字体加密，题目可能显示为乱码。解决方法：
+2. **字体解密**：当前 `lib/typr.js` 是安全占位符，扩展会正常加载，但不会解析加密字体。如果学习通页面使用了字体加密，题目可能显示为乱码。解决方法：
    - 从 https://github.com/photopea/Typr.js 下载完整的 Typr.js
    - 替换 `lib/typr.js` 文件
    - 重新加载扩展
@@ -82,5 +82,5 @@
 ---
 
 **开发完成时间**：2026-05-31  
-**版本**：v1.0.0  
+**版本**：v1.3.0  
 **状态**：✅ 可用

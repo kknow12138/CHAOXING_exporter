@@ -9,6 +9,16 @@
   <div class="container">
     <h2>题目导出助手</h2>
     <div id="status" class="status">准备就绪</div>
+    <div class="format-selector" role="group" aria-label="导出格式">
+      <label>
+        <input type="radio" name="export-format" value="docx" checked>
+        Word
+      </label>
+      <label>
+        <input type="radio" name="export-format" value="html">
+        HTML / PDF
+      </label>
+    </div>
     <div class="platform-list">
       <section class="platform-card">
         <div>
@@ -20,7 +30,7 @@
       <section class="platform-card">
         <div>
           <h3>雨课堂</h3>
-          <p>习题集（studentCards）页面导出 HTML；试卷/考试结果页面导出 Word</p>
+          <p>习题集、试卷、AI 学习空间测试题</p>
         </div>
         <button class="btn-primary platform-btn" data-platform="yuketang">导出</button>
       </section>

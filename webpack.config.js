@@ -10,6 +10,10 @@ module.exports = {
   },
   mode: 'production',
   target: 'webworker',
+  performance: {
+    maxAssetSize: 512 * 1024,
+    maxEntrypointSize: 512 * 1024
+  },
   resolve: {
     fallback: {
       "fs": false,

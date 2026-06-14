@@ -1,9 +1,11 @@
-import { Document, Paragraph, TextRun, AlignmentType, HeadingLevel, Packer, BorderStyle } from 'docx';
+import { Document, Paragraph, TextRun, AlignmentType, HeadingLevel, Packer, BorderStyle, ImageRun } from 'docx';
 
 const FILL_IN_TYPES = new Set(['填空题', '简答题', '名词解释', '论述题', '主观题', '问答题']);
+const MAX_IMAGE_WIDTH = 520;
+const MAX_IMAGE_HEIGHT = 360;
 
 export default class DocxGenerator {
-  generate(data) {
+  async generate(data) {
     const { title, questions } = data;
 
     const doc = new Document({
@@ -16,7 +18,7 @@ export default class DocxGenerator {
             alignment: AlignmentType.CENTER,
             spacing: { after: 400 }
           }),
-          ...this.generateQuestions(questions)
+          ...await this.generateQuestions(questions)
         ]
       }]
     });
@@ -24,29 +26,30 @@ export default class DocxGenerator {
     return doc;
   }
 
-  generateQuestions(questions) {
+  async generateQuestions(questions) {
     const paragraphs = [];
 
-    questions.forEach((q, index) => {
+    for (let index = 0; index < questions.length; index += 1) {
+      const q = questions[index];
       const isFillIn = FILL_IN_TYPES.has(q.type);
 
       if (isFillIn) {
-        paragraphs.push(...this.generateFillInQuestion(q));
+        paragraphs.push(...await this.generateFillInQuestion(q));
       } else {
-        paragraphs.push(...this.generateChoiceQuestion(q));
+        paragraphs.push(...await this.generateChoiceQuestion(q));
       }
 
       // 题目间分隔
       if (index < questions.length - 1) {
         paragraphs.push(new Paragraph({ text: '', spacing: { after: 100 } }));
       }
-    });
+    }
 
     return paragraphs;
   }
 
   // ── 选择/判断题（紧凑格式）──────────────────────────────────────
-  generateChoiceQuestion(q) {
+  async generateChoiceQuestion(q) {
     const paragraphs = [];
 
     // 题干
@@ -60,9 +63,10 @@ export default class DocxGenerator {
         spacing: { before: 200, after: 100 }
       })
     );
+    paragraphs.push(...await this.generateImageParagraphs(q.titleImages, { indent: { left: 400 } }));
 
     // 选项
-    (q.options || []).forEach(opt => {
+    for (const opt of q.options || []) {
       paragraphs.push(
         new Paragraph({
           text: `   ${opt.label}. ${opt.text}`,
@@ -70,7 +74,8 @@ export default class DocxGenerator {
           indent: { left: 400 }
         })
       );
-    });
+      paragraphs.push(...await this.generateImageParagraphs(opt.images, { indent: { left: 800 } }));
+    }
 
     // 我的答案（如果有且与 answer 不同）
     const myAns = q.myAnswer;
@@ -101,6 +106,7 @@ export default class DocxGenerator {
         })
       );
     }
+    paragraphs.push(...await this.generateImageParagraphs(q.answerImages, { indent: { left: 400 } }));
 
     // 解析
     if (q.analysis) {
@@ -120,7 +126,7 @@ export default class DocxGenerator {
   }
 
   // ── 填空/主观题（分章节富文本格式）──────────────────────────────
-  generateFillInQuestion(q) {
+  async generateFillInQuestion(q) {
     const paragraphs = [];
 
     // ── 标题行：【第N题】（题型）
@@ -150,10 +156,11 @@ export default class DocxGenerator {
         indent: { left: 200 }
       })
     );
+    paragraphs.push(...await this.generateImageParagraphs(q.titleImages, { indent: { left: 200 } }));
 
     if (Array.isArray(q.optionGroups) && q.optionGroups.length > 0) {
       paragraphs.push(this._sectionHeader('【选项】'));
-      q.optionGroups.forEach(group => {
+      for (const group of q.optionGroups) {
         paragraphs.push(
           new Paragraph({
             children: [
@@ -168,7 +175,7 @@ export default class DocxGenerator {
           })
         );
 
-        (group.options || []).forEach(opt => {
+        for (const opt of group.options || []) {
           paragraphs.push(
             new Paragraph({
               text: `${opt.label}. ${opt.text}`,
@@ -176,8 +183,9 @@ export default class DocxGenerator {
               indent: { left: 500 }
             })
           );
-        });
-      });
+          paragraphs.push(...await this.generateImageParagraphs(opt.images, { indent: { left: 700 } }));
+        }
+      }
     }
 
     // ── 【我的答案】（如果有）
@@ -205,6 +213,7 @@ export default class DocxGenerator {
         })
       );
     }
+    paragraphs.push(...await this.generateImageParagraphs(q.answerImages, { indent: { left: 200 } }));
 
     // ── 【答案解析】
     if (q.analysis) {
@@ -230,5 +239,91 @@ export default class DocxGenerator {
 
   async toBlob(doc) {
     return await Packer.toBlob(doc);
+  }
+
+  async generateImageParagraphs(images, paragraphOptions = {}) {
+    const paragraphs = [];
+    const imageList = Array.isArray(images) ? images : [];
+
+    for (const image of imageList) {
+      const run = await this.createImageRun(image);
+      if (run) {
+        paragraphs.push(
+          new Paragraph({
+            children: [run],
+            spacing: { before: 80, after: 80 },
+            ...paragraphOptions
+          })
+        );
+      } else if (image && image.src) {
+        paragraphs.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: `   [图片加载失败] ${image.src}`, color: '888888', italics: true })
+            ],
+            spacing: { after: 50 },
+            ...paragraphOptions
+          })
+        );
+      }
+    }
+
+    return paragraphs;
+  }
+
+  async createImageRun(image) {
+    if (!image || !image.src) {
+      return null;
+    }
+
+    try {
+      const data = await this.fetchImageData(image.src);
+      if (!data) {
+        return null;
+      }
+
+      const size = this.fitImageSize(image.width, image.height);
+      return new ImageRun({
+        data,
+        transformation: size,
+        altText: {
+          name: image.alt || '题目图片',
+          title: image.alt || '题目图片',
+          description: image.src
+        }
+      });
+    } catch (error) {
+      console.warn('图片加载失败:', image.src, error);
+      return null;
+    }
+  }
+
+  async fetchImageData(src) {
+    if (src.startsWith('data:image/')) {
+      return src;
+    }
+
+    const response = await fetch(src, { credentials: 'include' });
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType && !contentType.startsWith('image/')) {
+      return null;
+    }
+
+    return await response.arrayBuffer();
+  }
+
+  fitImageSize(width, height) {
+    const rawWidth = Number(width) || MAX_IMAGE_WIDTH;
+    const rawHeight = Number(height) || Math.round(rawWidth * 0.6);
+    const scale = Math.min(1, MAX_IMAGE_WIDTH / rawWidth, MAX_IMAGE_HEIGHT / rawHeight);
+
+    return {
+      width: Math.max(40, Math.round(rawWidth * scale)),
+      height: Math.max(30, Math.round(rawHeight * scale))
+    };
   }
 }
