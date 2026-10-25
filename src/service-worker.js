@@ -47,7 +47,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 function sanitizeFilename(name) {
-  return name.replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+  return String(name ?? '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().substring(0, 100) || '题目';
 }
 
 console.log('题目导出助手 - 后台服务已启动');

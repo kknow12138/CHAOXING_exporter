@@ -869,11 +869,15 @@ class QuestionExportParser {
     const question = {
       number: index + 1,
       title,
+      titleImages: this.extractTitleImages(questionElement),
       options: isFillIn ? [] : this.extractOptions(questionElement),
       myAnswer: this.extractMyAnswer(questionElement),
       correctAnswer: isFillIn ? this.extractCorrectAnswer(questionElement) : null,
       answer: isFillIn ? this.extractFillInAnswer(questionElement) : this.extractAnswer(questionElement),
       analysis: this.extractAnalysis(questionElement),
+      myAnswerImages: this.extractSectionImages(questionElement, 'mine'),
+      answerImages: this.extractSectionImages(questionElement, 'answer'),
+      analysisImages: this.extractSectionImages(questionElement, 'analysis'),
       score: this.extractScore(questionElement),
       type: null
     };
@@ -915,6 +919,8 @@ class QuestionExportParser {
       answer,
       answerImages: this.extractChaoxingAnswerImages(questionElement),
       analysis: this.extractAnalysis(questionElement),
+      myAnswerImages: this.extractSectionImages(questionElement, 'mine'),
+      analysisImages: this.extractSectionImages(questionElement, 'analysis'),
       score: this.extractScore(questionElement),
       type: questionType
     };
@@ -1362,34 +1368,36 @@ class QuestionExportParser {
   }
 
   extractChaoxingAnswerImages(element) {
-    const answerSelectors = [
-      '.mark_answer',
-      '.rightAnswerContent',
-      '.newAnswerBx',
-      '.answerBx',
-      '.Py_answer',
-      '.Zy_answer',
-      '.Cy_answer',
-      '.answerCon',
-      '.answerContent',
-      '.score_info',
-      '.lookAnswer',
-      '.correctAnswer'
-    ];
-    const nodes = [];
-    const answerBlock = this.findChaoxingAnswerBlock(element);
-    if (answerBlock) {
-      nodes.push(answerBlock);
-    }
+    return this.extractSectionImages(element, 'answer');
+  }
 
-    answerSelectors.forEach((selector) => {
-      const node = element.querySelector(selector);
-      if (node) {
-        nodes.push(node);
-      }
+  extractTitleImages(element) {
+    const titleNode = this.selectors.questionTitle.map((selector) => element.querySelector(selector)).find(Boolean);
+    const clone = (titleNode || element).cloneNode(true);
+    [...this.selectors.options, ...this.selectors.answerBox, '.mark_fill', '.my-answer'].forEach((selector) => {
+      clone.querySelectorAll(selector).forEach((node) => node.remove());
     });
+    return this.extractImagesFromNode(clone);
+  }
 
-    return this.dedupeImages(nodes.flatMap((node) => this.extractImagesFromNode(node)));
+  extractSectionImages(element, section) {
+    const sectionOf = (image) => {
+      let node = image.parentElement;
+      while (node && node !== element) {
+        if (node.matches('.analysis, .jiexitxt, .jiexi, .subject_analysis, .answer-analysis, .question-analysis, [class*="analysis"], [class*="jiexi"]')) return 'analysis';
+        if (node.matches('.mark_fill.colorDeep, .my-answer, .myAnswer, .user-answer')) return 'mine';
+        if (node.matches('.mark_fill.colorGreen, .rightAnswerContent, .correctAnswer, .correct-answer, .right-answer, .standard-answer, .reference-answer, .answer-correct')) return 'answer';
+        const text = this.cleanText(node.innerText || node.textContent || '');
+        const labels = new Set(Array.from(text.matchAll(/我的答案|正确答案|参考答案|标准答案|答案解析|试题解析|解析/g), (match) => match[0] === '我的答案' ? 'mine' : /解析/.test(match[0]) ? 'analysis' : 'answer'));
+        if (labels.size === 1 && /^(我的答案|正确答案|参考答案|标准答案|答案解析|试题解析|解析)[:：]?/.test(text)) return [...labels][0];
+        if (labels.size === 0 && node.matches('.mark_answer, .Py_answer, .Zy_answer, .Cy_answer, .answerCon, .answerContent, .lookAnswer')) return 'answer';
+        node = node.parentElement;
+      }
+      return '';
+    };
+    return this.dedupeImages(Array.from(element.querySelectorAll('img'))
+      .filter((image) => sectionOf(image) === section)
+      .flatMap((image) => this.extractImagesFromNode(image)));
   }
 
   /**
@@ -2701,14 +2709,14 @@ class QuestionExportParser {
       return [];
     }
 
-    const images = Array.from(node.querySelectorAll('img'))
+    const images = (node.matches?.('img') ? [node] : Array.from(node.querySelectorAll('img')))
       .map((image) => {
-        const rawSrc = image.currentSrc ||
-          image.getAttribute('src') ||
-          image.getAttribute('data-src') ||
+        const rawSrc = image.getAttribute('data-src') ||
           image.getAttribute('data-original') ||
           image.getAttribute('_src') ||
           image.getAttribute('file') ||
+          image.currentSrc ||
+          image.getAttribute('src') ||
           '';
         const src = this.resolveImageSrc(rawSrc);
         if (!src || this.isNoiseImage(image, src)) {
@@ -2747,12 +2755,6 @@ class QuestionExportParser {
   isNoiseImage(image, src) {
     const classText = this.collectClassText(image).toLowerCase();
     if (/(icon|avatar|face|emoji|logo|loading|blank|spacer|sprite)/i.test(classText)) {
-      return true;
-    }
-
-    const width = this.getImageDimension(image, 'width');
-    const height = this.getImageDimension(image, 'height');
-    if (width && height && width <= 24 && height <= 24) {
       return true;
     }
 

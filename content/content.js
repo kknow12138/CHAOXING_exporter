@@ -1,18 +1,23 @@
 // 等待字体解密初始化
 async function waitForFontDecryptor() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    if (!window.fontDecryptor || window.fontDecryptor.isReady()) {
+      resolve();
+      return;
+    }
     const check = setInterval(() => {
       if (window.fontDecryptor && window.fontDecryptor.isReady()) {
         clearInterval(check);
+        clearTimeout(timeout);
         resolve();
       }
     }, 100);
 
     // 超时保护（15秒）—— 字形哈希动态表需下载当前页字体（最长 8s）+ 解析 + 逐字形
     // MD5，必须给足时间，否则 parser 会在动态表就绪前抢跑、用静态表导出乱码。
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
       clearInterval(check);
-      resolve();
+      reject(new Error('字体仍在加载，请稍后重试导出'));
     }, 15000);
   });
 }

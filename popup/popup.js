@@ -44,7 +44,7 @@ async function handlePlatformExtract(platform) {
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    if (!isSupportedPlatformPage(tab.url, platform)) {
+    if (!tab?.id || !isSupportedPlatformPage(tab.url, platform)) {
       throw new Error(config.pageHint);
     }
 
@@ -76,7 +76,7 @@ async function handlePlatformExtract(platform) {
       return;
     }
 
-    // 雨课堂 studentCards 页面：走 API 提取，默认导出 HTML
+    // 雨课堂 studentCards 页面：走 API 提取
     if (platform === 'yuketang' && isYuketangCardsPage(tab.url)) {
       const response = await extractYuketangCards(tab.id, tab.url);
       if (!response.success) throw new Error(response.error);
@@ -86,10 +86,19 @@ async function handlePlatformExtract(platform) {
       resultDiv.innerHTML = `
         <p>✓ 平台: 雨课堂（习题集）</p>
         <p>✓ 题目数量: ${response.data.totalCount}</p>
-        <p>✓ HTML 文件已下载（可打开后打印为 PDF）</p>
+        <p>✓ 正在生成${exportFormat === 'html' ? ' HTML 网页' : ' Word 文档'}...</p>
       `;
       resultDiv.className = 'result';
-      downloadQuizHTML(response.data);
+      if (exportFormat === 'html') {
+        downloadQuizHTML(response.data);
+      } else {
+        await generateAndDownload(response.data);
+      }
+      resultDiv.innerHTML = `
+        <p>✓ 平台: 雨课堂（习题集）</p>
+        <p>✓ 题目数量: ${response.data.totalCount}</p>
+        <p>✓ ${exportFormat === 'html' ? 'HTML 网页已生成并下载，可打开后打印为 PDF' : 'Word 文档已生成并下载'}</p>
+      `;
       return;
     }
 
@@ -141,27 +150,30 @@ async function generateAndDownload(data) {
     data: data
   });
 
-  if (!response.success) {
-    throw new Error(response.error);
+  if (!response?.success) {
+    throw new Error(response?.error || '未收到导出结果，请重新打开扩展后重试');
   }
 }
 
 async function extractQuestionsFromTab(tabId, platform) {
   if (platform === 'chaoxing') {
     const frameResponse = await extractQuestionsFromAllFrames(tabId);
-    if (frameResponse && frameResponse.success) {
+    if (frameResponse && (frameResponse.success || frameResponse.fatal)) {
       return frameResponse;
     }
   }
 
   if (platform === 'yuketang') {
     const aiExerciseResponse = await extractYuketangAiExerciseFromAllFrames(tabId);
+    if (aiExerciseResponse?.recognized && !aiExerciseResponse.success) {
+      return aiExerciseResponse;
+    }
     if (aiExerciseResponse && aiExerciseResponse.success) {
       return aiExerciseResponse;
     }
 
     const frameResponse = await extractQuestionsFromAllFrames(tabId);
-    if (frameResponse && frameResponse.success) {
+    if (frameResponse && (frameResponse.success || frameResponse.fatal)) {
       return frameResponse;
     }
   }
@@ -180,6 +192,8 @@ async function extractQuestionsFromTab(tabId, platform) {
 
 async function extractQuestionsFromAllFrames(tabId) {
   let results = await runExtractorInAllFrames(tabId);
+  let failure = results.find((item) => item.result?.fatal)?.result;
+  if (failure) return failure;
   let bestResponse = pickBestFrameResponse(results);
 
   if (bestResponse) {
@@ -188,6 +202,8 @@ async function extractQuestionsFromAllFrames(tabId) {
 
   await injectContentScripts(tabId, true);
   results = await runExtractorInAllFrames(tabId);
+  failure = results.find((item) => item.result?.fatal)?.result;
+  if (failure) return failure;
   bestResponse = pickBestFrameResponse(results);
   return bestResponse || null;
 }
@@ -198,30 +214,37 @@ async function runExtractorInAllFrames(tabId) {
       target: { tabId, allFrames: true },
       func: async () => {
         const waitForFontDecryptor = () => new Promise((resolve) => {
+          if (!window.fontDecryptor || window.fontDecryptor.isReady()) {
+            resolve(true);
+            return;
+          }
           const timer = setInterval(() => {
             if (!window.fontDecryptor || window.fontDecryptor.isReady()) {
               clearInterval(timer);
-              resolve();
+              clearTimeout(timeout);
+              resolve(true);
             }
           }, 100);
 
-          setTimeout(() => {
+          const timeout = setTimeout(() => {
             clearInterval(timer);
-            resolve();
-          }, 3000);
+            resolve(false);
+          }, 15000);
         });
 
         if (!window.QuestionExportParser) {
           return { success: false, error: 'parser not ready' };
         }
 
-        await waitForFontDecryptor();
-
         const parser = new window.QuestionExportParser();
         const questionElements = parser.findQuestions();
 
         if (questionElements.length === 0) {
           return { success: false, error: parser.getNoQuestionMessage() };
+        }
+
+        if (!await waitForFontDecryptor()) {
+          return { success: false, fatal: true, error: '字体仍在加载，请稍后重试导出' };
         }
 
         const questions = questionElements.map((element, index) => parser.parseQuestion(element, index));
@@ -251,6 +274,8 @@ function pickBestFrameResponse(results) {
 
 async function extractYuketangAiExerciseFromAllFrames(tabId) {
   let results = await runYuketangAiExerciseExtractorInAllFrames(tabId);
+  let incomplete = results.find((item) => item.result?.recognized && !item.result.success)?.result;
+  if (incomplete) return incomplete;
   let bestResponse = pickBestFrameResponse(results);
 
   if (bestResponse) {
@@ -259,6 +284,8 @@ async function extractYuketangAiExerciseFromAllFrames(tabId) {
 
   await injectContentScripts(tabId, true);
   results = await runYuketangAiExerciseExtractorInAllFrames(tabId);
+  incomplete = results.find((item) => item.result?.recognized && !item.result.success)?.result;
+  if (incomplete) return incomplete;
   bestResponse = pickBestFrameResponse(results);
   return bestResponse || null;
 }
@@ -302,6 +329,13 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           return { success: false, error: 'not yuketang ai exercise frame' };
         }
 
+        for (let attempt = 0; window.fontDecryptor && !window.fontDecryptor.isReady() && attempt < 150; attempt += 1) {
+          await waitOnce(100);
+        }
+        if (window.fontDecryptor && !window.fontDecryptor.isReady()) {
+          return { success: false, recognized: true, error: '字体仍在加载，请稍后重试导出' };
+        }
+
         const yuketangFontMap = await loadYuketangFontMap();
 
         const cleanText = (text) => String(text || '')
@@ -329,7 +363,7 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           }
 
           if (node.nodeType === 3) {
-            return decryptText(node.nodeValue || '');
+            return node.parentElement?.closest('.xuetangx-com-encrypted-font') ? decryptText(node.nodeValue || '') : node.nodeValue || '';
           }
 
           if (node.nodeType !== 1) {
@@ -391,6 +425,48 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           return cleanText(decryptNodeText(clone) || clone.innerText || clone.textContent || '');
         };
 
+        const imageSource = (image) => {
+          const source = image.getAttribute('data-src') || image.getAttribute('data-original') ||
+            image.getAttribute('_src') || image.currentSrc || image.getAttribute('src');
+          if (!source) return '';
+          try { return new URL(source, location.href).href; } catch (error) { return ''; }
+        };
+
+        const extractImages = (node) => {
+          if (!node) return [];
+          const seen = new Set();
+          return (node.matches('img') ? [node] : Array.from(node.querySelectorAll('img'))).map((image) => ({
+            src: imageSource(image),
+            alt: image.getAttribute('alt') || '题目图片',
+            width: Number(image.naturalWidth || image.getAttribute('width')) || undefined,
+            height: Number(image.naturalHeight || image.getAttribute('height')) || undefined
+          })).filter((image) => {
+            if (!image.src || seen.has(image.src)) return false;
+            seen.add(image.src);
+            return true;
+          });
+        };
+
+        const sectionImages = (panel, section) => {
+          const selectors = {
+            mine: '.my-answer, .myAnswer, .user-answer',
+            answer: '.correct-answer, .right-answer, .standard-answer, .reference-answer, .correctAnswer',
+            analysis: '.analysis, .answer-analysis, .question-analysis, [class*="analysis"]'
+          };
+          return Array.from(panel.querySelectorAll('img')).filter((image) => {
+            let node = image.parentElement;
+            while (node && node !== panel) {
+              const owner = Object.keys(selectors).find((key) => node.matches(selectors[key]));
+              if (owner) return owner === section;
+              const labels = new Set(Array.from(readVisibleText(node).matchAll(/我的答案|正确答案|参考答案|标准答案|答案解析|试题解析|解析/g),
+                (match) => match[0] === '我的答案' ? 'mine' : /解析/.test(match[0]) ? 'analysis' : 'answer'));
+              if (labels.size === 1) return labels.has(section);
+              node = node.parentElement;
+            }
+            return false;
+          }).flatMap(extractImages);
+        };
+
         const sanitizeRichHtml = (node) => {
           if (!node) {
             return '';
@@ -398,6 +474,10 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
 
           const clone = node.cloneNode(true);
           removeNoise(clone);
+          clone.querySelectorAll('img').forEach((image) => {
+            const source = imageSource(image);
+            if (source) image.setAttribute('src', source);
+          });
           clone.querySelectorAll('*').forEach((element) => {
             Array.from(element.attributes || []).forEach((attr) => {
               const name = attr.name.toLowerCase();
@@ -504,7 +584,7 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           const normalized = cleanText(text)
             .replace(/\s*(正确答案|参考答案|标准答案|我的答案|答案解析|解析).*$/i, '')
             .trim();
-          const match = normalized.match(/^([A-H])[\.\s、:：\)]\s*(.+)$/i);
+          const match = normalized.match(/^([A-H])[\.\s、:：\)]\s*(.*)$/i);
           if (match) {
             return { label: match[1].toUpperCase(), text: cleanText(match[2]) };
           }
@@ -529,6 +609,7 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             .filter((node) => {
               const text = readVisibleText(node);
               return /^([A-H])[\.\s、:：\)]\s*\S+/i.test(text) ||
+                (/^[A-H][.、:：)]/i.test(text) && node.querySelector('img')) ||
                 node.querySelector('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]');
             })
             .filter((node) => {
@@ -544,12 +625,14 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             return {
               ...option,
               html: sanitizeRichHtml(node),
-              isChecked: Boolean(node.matches('.checked, .selected, .active, .right, .correct, [aria-checked="true"]') ||
-                node.querySelector('input:checked, .checked, .selected, .active, .right, .correct, [aria-checked="true"]'))
+              images: extractImages(node),
+              isChecked: Boolean(node.matches('.checked, .selected, .active, [aria-checked="true"]') ||
+                node.querySelector('input:checked, .checked, .selected, .active, [aria-checked="true"]')),
+              isCorrect: Boolean(node.matches('.right, .correct') || node.querySelector('.right, .correct'))
             };
           }).filter((option) => {
             const key = `${option.label}:${option.text}`;
-            if (!option.text || seen.has(key) || /^(正确答案|参考答案|标准答案|我的答案|答案解析|解析)/.test(option.text)) {
+            if ((!option.text && option.images.length === 0) || seen.has(key) || /^(正确答案|参考答案|标准答案|我的答案|答案解析|解析)/.test(option.text)) {
               return false;
             }
 
@@ -581,11 +664,11 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
         const extractAnswer = (panel, options) => {
           const answer = extractLabeledText(
             panel,
-            '正确答案|参考答案|标准答案|答案',
+            '正确答案|参考答案|标准答案|(?<!我的|正确|参考|标准)答案',
             '我的答案|答案解析|解析|收起解析|AI讲解|知识点|本题得分|得分'
           );
           if (!answer) {
-            const checked = options.filter((option) => option.isChecked);
+            const checked = options.filter((option) => option.isCorrect);
             return checked.length > 0 ? checked.map((option) => `${option.label}. ${option.text}`).join('、') : null;
           }
 
@@ -628,7 +711,7 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           ];
           for (const selector of titleSelectors) {
             const node = visibleElements(selector, panel)[0];
-            if (node && stripQuestionNoise(readVisibleText(node)).length >= 2) {
+            if (node && (stripQuestionNoise(readVisibleText(node)).length >= 2 || node.querySelector('img'))) {
               return node;
             }
           }
@@ -667,12 +750,15 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
 
           const title = extractTitle(panel);
           const titleNode = findTitleNode(panel);
+          const titleImages = extractImages(titleNode);
           const options = extractOptions(panel);
           const answer = extractAnswer(panel, options);
           const analysis = extractAnalysis(panel);
+          const myAnswer = extractLabeledText(panel, '我的答案', '正确答案|参考答案|标准答案|答案解析|解析|本题得分|得分') ||
+            options.filter((option) => option.isChecked).map((option) => `${option.label}. ${option.text}`).join('、') || null;
           const type = inferType(title, options, answer);
 
-          if (!title && options.length === 0 && !answer) {
+          if (!title && titleImages.length === 0 && options.length === 0 && !answer) {
             return null;
           }
 
@@ -680,41 +766,55 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             number: fallbackNumber,
             title,
             titleHtml: titleNode ? sanitizeRichHtml(titleNode) : '',
+            titleImages,
             options,
-            myAnswer: null,
-            correctAnswer: null,
+            myAnswer,
+            myAnswerImages: sectionImages(panel, 'mine'),
+            correctAnswer: answer,
             answer,
+            answerImages: sectionImages(panel, 'answer'),
             analysis,
+            analysisImages: sectionImages(panel, 'analysis'),
             score: null,
             type
           };
         };
 
-        const dedupeQuestions = (questions) => {
-          const seen = new Set();
-          return questions.filter((question) => {
-            const key = [
-              question.title,
-              (question.options || []).map((option) => `${option.label}:${option.text}`).join('|'),
-              question.answer || '',
-              question.correctAnswer || ''
-            ].join('::');
-            if (seen.has(key)) {
-              return false;
-            }
-
-            seen.add(key);
-            return true;
-          });
-        };
-
+        const seenOrders = new Set();
         const sortedButtons = orderButtons
           .map((button, index) => ({
             button,
             order: Number(button.dataset.order || button.textContent || index + 1) || index + 1
           }))
-          .sort((a, b) => a.order - b.order);
+          .sort((a, b) => a.order - b.order)
+          .filter(({ order }) => {
+            if (seenOrders.has(order)) return false;
+            seenOrders.add(order);
+            return true;
+          });
         const questions = [];
+        const panelSnapshot = () => {
+          const panel = findQuestionPanel();
+          if (!panel) return '';
+          return `${panel.dataset.questionId || panel.dataset.problemId || ''}::${panel.innerHTML}`;
+        };
+        const waitForQuestion = async (order, previousSnapshot, alreadySelected) => {
+          let lastSnapshot = '';
+          let stableCount = 0;
+          for (let attempt = 0; attempt < 60; attempt += 1) {
+            await waitOnce(250);
+            const snapshot = panelSnapshot();
+            const loading = visibleElements('[aria-busy="true"], .el-loading-mask, .loading-mask').length > 0;
+            if (!loading && snapshot && (alreadySelected || snapshot !== previousSnapshot)) {
+              stableCount = snapshot === lastSnapshot ? stableCount + 1 : 1;
+              if (stableCount >= 3) return parseCurrentQuestion(order);
+            } else {
+              stableCount = 0;
+            }
+            lastSnapshot = snapshot;
+          }
+          return null;
+        };
 
         if (sortedButtons.length === 0) {
           const question = parseCurrentQuestion(1);
@@ -723,22 +823,21 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           }
         } else {
           for (const { button, order } of sortedButtons) {
+            const previousSnapshot = panelSnapshot();
+            const alreadySelected = button.matches('.active, .selected, .current, .on, [aria-current="true"], [aria-selected="true"]');
             button.click();
-            await waitOnce(1000);
-            const question = parseCurrentQuestion(order);
-            if (question) {
-              questions.push(question);
+            const question = await waitForQuestion(order, previousSnapshot, alreadySelected);
+            if (!question) {
+              return { success: false, recognized: true, error: `第 ${order} 题未完成切换或加载，无法确认题目完整，请加载页面后重试` };
             }
+            questions.push(question);
           }
         }
 
-        const uniqueQuestions = dedupeQuestions(questions).map((question, index) => ({
-          ...question,
-          number: index + 1
-        }));
+        const uniqueQuestions = questions;
 
         if (uniqueQuestions.length === 0) {
-          return { success: false, error: '未找到雨课堂 AI 学习空间测试题' };
+          return { success: false, recognized: true, error: '未找到雨课堂 AI 学习空间测试题' };
         }
 
         return {
@@ -835,7 +934,7 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId },
     func: async (classroomId, exerciseId) => {
-      const cleanText = (text) => String(text || '')
+      const cleanText = (text) => String(text ?? '')
         .replace(/\u00a0/g, ' ')
         .replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
         .replace(/[ \t]*\n+[ \t]*/g, ' ')
@@ -876,13 +975,25 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
       };
 
       const decryptEncryptedNodes = (root) => {
-        root.querySelectorAll([
+        const selector = [
           '.xuetangx-com-encrypted-font',
           '[style*="exam-data-decrypt-font"]',
           '[style*="exam-font"]'
-        ].join(', ')).forEach((node) => {
-          node.textContent = decryptText(node.textContent || '');
-        });
+        ].join(', ');
+        const visit = (node, encrypted = false) => {
+          if (node.nodeType === 3) {
+            if (encrypted) node.nodeValue = decryptText(node.nodeValue || '');
+            return;
+          }
+          if (node.nodeType !== 1) return;
+          const isEncrypted = encrypted || node.matches(selector);
+          Array.from(node.childNodes).forEach((child) => visit(child, isEncrypted));
+          if (isEncrypted) {
+            node.classList.remove('xuetangx-com-encrypted-font');
+            node.style.removeProperty('font-family');
+          }
+        };
+        visit(root);
       };
 
       const normalizeImageSrc = (root) => {
@@ -1011,8 +1122,9 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
           const user = problem.user || {};
           const bodyHtml = content.Body || '';
           const options = Array.isArray(content.Options) ? content.Options : [];
-          const answer = Array.isArray(user.answer) ? user.answer.join('') : String(user.answer || '');
-          const myAnswer = Array.isArray(user.my_answer) ? user.my_answer.join('') : String(user.my_answer || '');
+          const answer = Array.isArray(user.answer) ? user.answer.join('、') : String(user.answer ?? '');
+          const myAnswer = Array.isArray(user.my_answer) ? user.my_answer.join('、') : String(user.my_answer ?? '');
+          const analysisHtml = content.Analysis || content.analysis || '';
 
           return {
             number: index + 1,
@@ -1029,14 +1141,20 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
                 images: extractImages(valueHtml)
               };
             }),
-            myAnswer,
-            correctAnswer: answer,
-            answer,
-            analysis: htmlToText(content.Analysis || content.analysis || ''),
+            myAnswer: htmlToText(myAnswer),
+            myAnswerHtml: sanitizeRichHtml(myAnswer),
+            myAnswerImages: extractImages(myAnswer),
+            correctAnswer: htmlToText(answer),
+            answer: htmlToText(answer),
+            answerHtml: sanitizeRichHtml(answer),
+            answerImages: extractImages(answer),
+            analysis: htmlToText(analysisHtml),
+            analysisHtml: sanitizeRichHtml(analysisHtml),
+            analysisImages: extractImages(analysisHtml),
             score: user.my_score ?? '',
             maxScore: content.score ?? ''
           };
-        }).filter((question) => question.title || question.options.length > 0 || question.answer);
+        }).filter((question) => question.title || question.titleImages.length > 0 || question.options.length > 0 || question.answer);
 
         if (questions.length === 0) {
           return { success: false, error: '当前作业节点没有返回可导出的题目' };
@@ -1111,7 +1229,7 @@ async function extractYuketangCards(tabId, url) {
             const pr = s.problem_result ?? {};
             const answer = String(pr.answer ?? '');
             const type = PTYPES[pr.problem_type] ?? '题目';
-            const stem = shapeText(s.ProblemBodys?.['0']);
+            const stem = Object.values(s.ProblemBodys ?? {}).map(shapeText).filter(Boolean).join('\n');
             const options = (s.Problem?.Bullets ?? []).map(b => {
               const contents = Array.isArray(b.Contents)
                 ? b.Contents
@@ -1121,6 +1239,10 @@ async function extractYuketangCards(tabId, url) {
             });
             return { number: idx + 1, type, title: stem, options, answer, analysis: '' };
           });
+
+        if (questions.length === 0) {
+          return { success: false, error: '当前习题集没有返回可导出的题目' };
+        }
 
         return {
           success: true,
@@ -1139,6 +1261,9 @@ async function extractYuketangCards(tabId, url) {
 // 生成题目 HTML 并触发下载
 function downloadQuizHTML(data) {
   const { title, questions } = data;
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error('没有可导出的题目');
+  }
   const CORRECT_COLOR = '#2e7d32';
   const yuketangFontUrl = data.yuketangFontUrl || 'https://fe-static-yuketang.yuketang.cn/fe_font/product/exam_font_239fdcc493de4ef5a4d14835f3a0243c.ttf';
   const ts = new Date().toLocaleString('zh-CN');
@@ -1168,19 +1293,20 @@ function downloadQuizHTML(data) {
         `).join('') +
         '</div>'
       : '';
-    const answer = q.correctAnswer || q.answer;
+    const answer = q.correctAnswer !== undefined && q.correctAnswer !== null && q.correctAnswer !== '' ? q.correctAnswer : q.answer;
+    const hasText = (value) => value !== undefined && value !== null && value !== '';
 
     return `<div class="q">
   <div class="qhead">
-    <span class="qnum">第 ${q.number} 题</span>
-    <span class="qtype">${q.type}</span>
+    <span class="qnum">第 ${escHtml(q.number)} 题</span>
+    <span class="qtype">${escHtml(q.type)}</span>
   </div>
   <div class="stem">${renderRichContent(q.titleHtml, q.title, q.titleImages)}</div>
   ${optsHTML}
   ${optionGroupsHTML}
-  ${q.myAnswer ? `<div class="mine">我的答案：${escHtml(q.myAnswer)}</div>` : ''}
-  ${answer ? `<div class="ans">正确答案：<strong>${escHtml(answer)}</strong>${renderHtmlImages(q.answerImages)}</div>` : renderHtmlImages(q.answerImages, 'ans')}
-  ${q.analysis ? `<div class="analysis">解析：${escHtml(q.analysis)}</div>` : ''}
+  ${hasText(q.myAnswer) || q.myAnswerImages?.length ? `<div class="mine">我的答案：${renderRichContent(q.myAnswerHtml, q.myAnswer, q.myAnswerImages)}</div>` : ''}
+  ${hasText(answer) || q.answerImages?.length ? `<div class="ans">正确答案：${renderRichContent(q.answerHtml, answer, q.answerImages)}</div>` : ''}
+  ${hasText(q.analysis) || q.analysisImages?.length ? `<div class="analysis">解析：${renderRichContent(q.analysisHtml, q.analysis, q.analysisImages)}</div>` : ''}
 </div>`;
   }).join('\n');
 
@@ -1216,7 +1342,7 @@ function downloadQuizHTML(data) {
   .analysis{background:#fff8e1;color:#795548;border-radius:6px;
             padding:10px 14px;font-size:13px;margin-top:8px}
   .img-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-  .img-list img{max-width:100%;height:auto;border:1px solid #eee;border-radius:6px;background:#fff}
+  .img-list img,.rich img{max-width:100%;height:auto;border:1px solid #eee;border-radius:6px;background:#fff}
   .print-btn{position:fixed;top:16px;right:16px;background:#4a90e2;color:#fff;
              border:none;border-radius:8px;padding:10px 20px;font-size:14px;
              font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:999}
@@ -1259,15 +1385,38 @@ function renderHtmlImages(images, className = 'img-list') {
   }
 
   return `<div class="${className}">` + list.map((image) => {
-    const src = escHtml(image.src || '');
+    const src = escHtml(safeExportUrl(image?.src, true));
     const alt = escHtml(image.alt || '题目图片');
     return src ? `<img src="${src}" alt="${alt}">` : '';
   }).join('') + '</div>';
 }
 
 function renderRichContent(html, fallbackText, images) {
-  const content = html ? `<div class="rich">${html}</div>` : escHtml(fallbackText || '');
-  return `${content}${renderHtmlImages(images)}`;
+  const existing = document.createElement('div');
+  existing.innerHTML = html || '';
+  existing.querySelectorAll('script, style, noscript, template, iframe, object, embed, form, input, button, meta, link, base').forEach((node) => node.remove());
+  existing.querySelectorAll('*').forEach((element) => {
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (!['class', 'src', 'href', 'alt', 'title', 'colspan', 'rowspan'].includes(name)) {
+        element.removeAttribute(attribute.name);
+      } else if (name === 'src' || name === 'href') {
+        const safe = safeExportUrl(attribute.value, name === 'src');
+        if (safe) element.setAttribute(name, safe);
+        else element.removeAttribute(name);
+      }
+    });
+  });
+  const content = html ? `<div class="rich">${existing.innerHTML}</div>` : escHtml(fallbackText ?? '');
+  const sources = new Set(Array.from(existing.querySelectorAll('img')).map((image) => image.getAttribute('src')));
+  const extraImages = (Array.isArray(images) ? images : []).filter((image) => image && !sources.has(image.src));
+  return `${content}${renderHtmlImages(extraImages)}`;
+}
+
+function safeExportUrl(value, image = false) {
+  const url = String(value ?? '').trim();
+  if (/^https?:\/\//i.test(url) || (image && /^data:image\/(?:png|jpeg|gif|webp|bmp);base64,/i.test(url))) return url;
+  return '';
 }
 
 function escCssUrl(url) {
@@ -1275,5 +1424,5 @@ function escCssUrl(url) {
 }
 
 function sanitizeFilename(name) {
-  return String(name ?? '题目').replace(/[<>:"/\\|?*]/g, '_').substring(0, 100);
+  return String(name ?? '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().substring(0, 100) || '题目';
 }
