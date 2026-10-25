@@ -66,6 +66,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       } catch (error) {
         sendResponse({
           success: false,
+          fatal: error.code === 'FONT_DECRYPTION_FAILED',
           error: error.message
         });
       }

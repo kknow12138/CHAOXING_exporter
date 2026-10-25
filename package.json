@@ -1,12 +1,12 @@
 {
   "name": "question-exporter",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "学习通 / 长江雨课堂 / 课堂派题目导出助手 - 浏览器扩展",
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack --mode development --watch",
-    "test:static": "node --check lib/typr.js && node --check popup/popup.js && node --check content/parser.js && node --check content/content.js && node --check src/service-worker.js && node --check src/docx-generator.js",
-    "test:regression": "node --test tests/export-regression.test.cjs",
+    "test:static": "node --check lib/typr.js && node --check lib/font-decrypt.js && node --check popup/popup.js && node --check content/parser.js && node --check content/content.js && node --check src/service-worker.js && node --check src/docx-generator.js",
+    "test:regression": "node --test tests/*.test.cjs",
     "test": "npm run test:static && npm run test:regression && npm run build"
   },
   "dependencies": {

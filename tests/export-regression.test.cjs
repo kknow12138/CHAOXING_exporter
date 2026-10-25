@@ -164,10 +164,10 @@ test('HTML retains grouped options and escapes metadata', async () => {
   assert.ok(!document.querySelector('.qtype img'), 'question type must be escaped');
 });
 
-function lmsState(problems) {
+function lmsState(problems, font = '') {
   return loadPopup({
     url: 'https://changjiang.yuketang.cn/v2/web/ai-workspace/lms-graph/12/exercise/34',
-    fetch: async (url) => ({ ok: true, json: async () => url.includes('leaf_info') ? { data: { name: '作业', leaf_type_id: 34 } } : { data: { problems } } })
+    fetch: async (url) => ({ ok: true, json: async () => url.includes('leaf_info') ? { data: { name: '作业', leaf_type_id: 34 } } : { data: { problems, font } } })
   });
 }
 
@@ -188,12 +188,31 @@ test('AI workspace API preserves zero answers and analysis images', async () => 
 });
 
 test('AI workspace decryption preserves nested images and does not decode twice', async () => {
-  const state = lmsState([{ content: { Body: '<span class="xuetangx-com-encrypted-font">甲<span class="xuetangx-com-encrypted-font">甲</span><img src="/inside.png"></span>' } }]);
-  state.window.fontDecryptor.decrypt = (value) => value.replaceAll('乙', '丙').replaceAll('甲', '乙');
+  const state = lmsState([{ content: { Body: '<span class="xuetangx-com-encrypted-font">甲<span class="xuetangx-com-encrypted-font">甲</span><img src="/inside.png"></span>' } }], '/current.ttf');
+  state.window.fontDecryptor._buildDynamicMapping = async () => new Map([['甲', '乙'], ['乙', '丙']]);
   const result = await state.context.extractYuketangLmsGraphExercise(1, state.context.location.href);
   assert.equal(result.data.questions[0].title, '乙乙');
   assert.match(result.data.questions[0].titleHtml, /inside.png/);
   assert.doesNotMatch(result.data.questions[0].titleHtml, /xuetangx-com-encrypted-font/);
+});
+
+test('AI workspace decodes only encrypted runs using the current exercise font', async () => {
+  const state = lmsState([{ content: { Body: '普通甲<span class="xuetangx-com-encrypted-font">甲<i style="font-family:serif">甲</i></span>' } }], '/current.ttf');
+  state.window.fontDecryptor._buildDynamicMapping = async () => new Map([['甲', '乙'], ['乙', '丙']]);
+  const result = await state.context.extractYuketangLmsGraphExercise(1, state.context.location.href);
+  assert.equal(result.data.questions[0].title, '普通甲乙甲');
+});
+
+test('AI workspace fails when its encrypted font is missing or only partially recognized', async () => {
+  for (const map of [null, Object.assign(new Map([['甲', '乙']]), { unresolvedCharacters: new Set(['丙']) })]) {
+    const state = lmsState([{ content: { Body: '<span class="xuetangx-com-encrypted-font">丙</span>' } }], '/current.ttf');
+    state.window.fontDecryptor._buildDynamicMapping = async () => map;
+    state.window.fontDecryptor.decrypt = () => '错误的其他字体';
+    const result = await state.context.extractYuketangLmsGraphExercise(1, state.context.location.href);
+    assert.equal(result.success, false);
+    assert.equal(result.fatal, true);
+    assert.match(result.error, /字体/);
+  }
 });
 
 test('Word retains a fallback URL if an image cannot be downloaded', async () => {
@@ -302,6 +321,14 @@ test('parser preserves lazy-loaded images and small mathematical images', () => 
   const state = loadParser('<div class="questionLi"><img src="/loading.gif" data-src="/diagram.png"><img src="/formula.png" width="16" height="16"></div>');
   const images = state.parser.extractImagesFromNode(state.document.querySelector('.questionLi'));
   assert.deepEqual(Array.from(images, (image) => image.src), ['https://mooc1.chaoxing.com/diagram.png', 'https://mooc1.chaoxing.com/formula.png']);
+});
+
+test('empty Chaoxing analysis does not capture the AI explanation button', () => {
+  for (const analysis of ['', '参考解析内容']) {
+    const state = loadParser(`<div class="questionLi"><h3 class="qtContent">测试题干</h3><div class="mark_answer"><div class="analysis">答案解析：<span>${analysis}</span></div></div><a class="aiAssistant">AI讲解</a></div>`);
+    const question = state.document.querySelector('.questionLi');
+    assert.equal(state.parser.extractAnalysis(question), analysis || null);
+  }
 });
 
 test('background download filename accepts a missing or empty title', () => {

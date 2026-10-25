@@ -213,6 +213,7 @@ async function runExtractorInAllFrames(tabId) {
     return await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: async () => {
+        try {
         const waitForFontDecryptor = () => new Promise((resolve) => {
           if (!window.fontDecryptor || window.fontDecryptor.isReady()) {
             resolve(true);
@@ -258,6 +259,9 @@ async function runExtractorInAllFrames(tabId) {
             totalCount: questions.length
           }
         };
+        } catch (error) {
+          return { success: false, fatal: true, error: error.message };
+        }
       }
     });
   } catch (error) {
@@ -295,24 +299,8 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
     return await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: async () => {
+        try {
         const waitOnce = (ms = 1000) => new Promise((resolve) => setTimeout(resolve, ms));
-        const loadYuketangFontMap = async () => {
-          try {
-            const response = await fetch(chrome.runtime.getURL('lib/yuketang-font-map.json'));
-            if (!response.ok) {
-              return new Map();
-            }
-
-            const payload = await response.json();
-            const rawMap = payload.map || payload || {};
-            return new Map(Object.entries(rawMap).map(([key, value]) => {
-              const sourceChar = /^\d+$/.test(key) ? String.fromCharCode(Number(key)) : key;
-              return [sourceChar, String(value)];
-            }));
-          } catch (error) {
-            return new Map();
-          }
-        };
 
         const isYuketangHost = location.hostname.includes('yuketang.cn');
         const orderButtons = Array.from(document.querySelectorAll([
@@ -336,8 +324,6 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           return { success: false, recognized: true, error: '字体仍在加载，请稍后重试导出' };
         }
 
-        const yuketangFontMap = await loadYuketangFontMap();
-
         const cleanText = (text) => String(text || '')
           .replace(/\u00a0/g, ' ')
           .replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
@@ -346,16 +332,10 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           .trim();
 
         const decryptNodeText = (node) => {
-          const decryptText = (text) => Array.from(String(text || ''))
-            .map((char) => yuketangFontMap.get(char) || char)
-            .join('');
-
           if (window.fontDecryptor && window.fontDecryptor.isReady()) {
             if (typeof window.fontDecryptor.decryptNodeText === 'function') {
               return window.fontDecryptor.decryptNodeText(node);
             }
-
-            return window.fontDecryptor.decrypt(node?.textContent || '');
           }
 
           if (!node) {
@@ -363,15 +343,13 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
           }
 
           if (node.nodeType === 3) {
-            return node.parentElement?.closest('.xuetangx-com-encrypted-font') ? decryptText(node.nodeValue || '') : node.nodeValue || '';
+            return window.fontDecryptor?.decrypt
+              ? window.fontDecryptor.decrypt(node.nodeValue || '', node)
+              : node.nodeValue || '';
           }
 
           if (node.nodeType !== 1) {
             return '';
-          }
-
-          if (node.classList && node.classList.contains('xuetangx-com-encrypted-font')) {
-            return decryptText(node.textContent || '');
           }
 
           return Array.from(node.childNodes || [])
@@ -419,7 +397,7 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             return '';
           }
 
-          const clone = node.cloneNode(true);
+          const clone = window.fontDecryptor?.cloneForExtraction?.(node) || node.cloneNode(true);
           removeNoise(clone);
 
           return cleanText(decryptNodeText(clone) || clone.innerText || clone.textContent || '');
@@ -472,8 +450,17 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             return '';
           }
 
-          const clone = node.cloneNode(true);
+          const clone = window.fontDecryptor?.cloneForExtraction?.(node) || node.cloneNode(true);
           removeNoise(clone);
+          const decode = (current) => {
+            if (current.nodeType === 3) {
+              current.nodeValue = decryptNodeText(current);
+              return;
+            }
+            Array.from(current.childNodes || []).forEach(decode);
+            current.classList?.remove('xuetangx-com-encrypted-font', 'exam-font', 'font-cxsecret', 'cxsecret');
+          };
+          decode(clone);
           clone.querySelectorAll('img').forEach((image) => {
             const source = imageSource(image);
             if (source) image.setAttribute('src', source);
@@ -850,6 +837,9 @@ async function runYuketangAiExerciseExtractorInAllFrames(tabId) {
             totalCount: uniqueQuestions.length
           }
         };
+        } catch (error) {
+          return { success: false, recognized: true, fatal: true, error: error.message };
+        }
       }
     });
   } catch (error) {
@@ -955,23 +945,22 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
-        return decryptor;
+        throw new Error('字体仍在加载，请稍后重试导出');
       };
 
       const decryptor = await waitForFontDecryptor();
       let exerciseDecryptMap = null;
       const decryptText = (text) => {
-        if (exerciseDecryptMap && exerciseDecryptMap.size > 0) {
-          return Array.from(String(text || ''))
-            .map((char) => exerciseDecryptMap.get(char) || char)
-            .join('');
+        if (!text || /^[\x00-\x7F]*$/.test(text)) return String(text || '');
+        if (!exerciseDecryptMap || exerciseDecryptMap.size === 0) {
+          throw new Error('当前作业的加密字体未能可靠识别，请刷新页面后重试导出');
         }
-
-        if (decryptor && typeof decryptor.decrypt === 'function') {
-          return decryptor.decrypt(text || '');
-        }
-
-        return String(text || '');
+        return Array.from(String(text || ''), (char) => {
+          if (exerciseDecryptMap.unresolvedCharacters?.has(char)) {
+            throw new Error('当前作业的加密字体包含未识别字符，请刷新页面后重试导出');
+          }
+          return exerciseDecryptMap.get(char) ?? char;
+        }).join('');
       };
 
       const decryptEncryptedNodes = (root) => {
@@ -986,7 +975,10 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
             return;
           }
           if (node.nodeType !== 1) return;
-          const isEncrypted = encrypted || node.matches(selector);
+          const family = node.style?.fontFamily?.split(',')[0]?.replace(/['"]/g, '').trim();
+          const isEncrypted = family
+            ? /^(exam-data-decrypt-font|exam-font)$/i.test(family)
+            : encrypted || node.matches(selector);
           Array.from(node.childNodes).forEach((child) => visit(child, isEncrypted));
           if (isEncrypted) {
             node.classList.remove('xuetangx-com-encrypted-font');
@@ -1113,7 +1105,7 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
               exerciseDecryptMap = map;
             }
           } catch (error) {
-            console.warn('雨课堂作业字体动态解密失败，降级使用已有映射:', error);
+            console.warn('雨课堂作业字体动态解密失败:', error);
           }
         }
 
@@ -1171,7 +1163,7 @@ async function extractYuketangLmsGraphExercise(tabId, url) {
           }
         };
       } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, fatal: true, error: error.message };
       }
     },
     args: [classroomId, exerciseId]

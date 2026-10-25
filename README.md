@@ -102,16 +102,9 @@ npm run dev
 
 ### 雨课堂加密字体映射
 
-长江雨课堂部分题目会使用 `.xuetangx-com-encrypted-font` 和自定义 TTF 字体混淆 DOM 文本。扩展会读取 `lib/yuketang-font-map.json` 对这些字符做码点替换。
+长江雨课堂部分题目使用 `.xuetangx-com-encrypted-font` 和自定义字体混淆 DOM 文本。扩展根据当前页面的字体文件及内置字形哈希表构建映射，只解密实际使用对应字体的文本节点。普通中文保持原文，同一页面的不同加密字体分别处理。
 
-如果页面更换了字体文件，重新生成映射：
-
-```bash
-python3 -m pip install -r scripts/requirements-yuketang-font.txt
-python3 scripts/generate_yuketang_font_map.py \
-  --font-url https://fe-static-yuketang.yuketang.cn/fe_font/product/exam_font_239fdcc493de4ef5a4d14835f3a0243c.ttf \
-  --output lib/yuketang-font-map.json
-```
+`lib/yuketang-font-map.json` 为历史字体的诊断数据，不参与导出替换。当前字体无法可靠识别时，扩展会提示刷新页面后重试。
 
 ## 项目结构
 
@@ -125,7 +118,7 @@ python3 scripts/generate_yuketang_font_map.py \
 │   └── service-worker.js # Word 生成和下载
 ├── lib/                   # 库文件
 │   ├── font-decrypt.js   # 字体解密
-│   └── typr.js           # 字体解析（占位符）
+│   └── typr.js           # 字体解析
 └── src/                   # 源代码
     ├── docx-generator.js # Word 生成器
     └── service-worker.js # 后台服务源码
@@ -152,11 +145,7 @@ python3 -m venv .venv
 
 ## 字体解密
 
-学习通使用自定义字体加密文本。如果题目显示乱码：
-
-1. 从 https://github.com/photopea/Typr.js 下载 `Typr.js`
-2. 替换 `lib/typr.js` 文件
-3. 重新加载扩展
+学习通与雨课堂的加密字体需要加载完成后才能导出。更新插件后，在扩展管理页重新加载插件，并刷新作业页面。若提示字体无法识别，请保留页面地址及错误信息以便排查。
 
 不过大部分情况下不需要字体解密也能正常使用。
 
@@ -167,6 +156,18 @@ python3 -m venv .venv
 - Webpack - 打包工具
 
 ## 更新日志
+
+### v1.4.2 · 2026-10-25 — 中文乱码修复
+
+- 修复旧字体映射误改普通中文导致标题、题干、选项及答案出现错字的问题。
+- 按文本节点实际使用的当前字体解密，保留混合字体和嵌套内容，并避免重复解密。
+- 当前加密字体无法可靠识别时明确报错，避免使用不匹配的历史映射导出。
+- 修复学习通空解析栏误抓取“AI讲解”按钮文字的问题。
+- 新增真实字体解密器回归测试，覆盖普通中文、混合字体、多个字体、解密次数与失败处理。
+
+52 项回归测试、语法检查及生产构建通过。学习通完成作业的 Word / HTML 实测通过，30 道题、82 个选项、标准答案、我的答案与标题均匹配网页，WPS 中文显示正常；该页面无图片和加密字体，相关功能仅完成离线回归。
+
+下载：[浏览器插件安装包](https://github.com/kknow12138/CHAOXING_exporter/releases/download/v1.4.2/chaoxing-exporter-v1.4.2.zip) · [完整更新日志](CHANGELOG.md)。
 
 ### v1.4.1 · 2026-10-25 — 导出完整性修复
 
